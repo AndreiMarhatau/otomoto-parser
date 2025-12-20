@@ -6,39 +6,71 @@ from otomoto_parser.parser import RUN_MODE_APPEND_NEWER, RUN_MODE_FULL, parse_pa
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
+SAMPLE_URL = (
+    "https://www.otomoto.pl/osobowe/bmw/x1/seg-city-car--seg-compact--seg-sedan--seg-suv/od-2009/"
+    "mazowieckie?search%5Bfilter_enum_damaged%5D=0&search%5Bfilter_enum_fuel_type%5D%5B0%5D=hybrid&"
+    "search%5Bfilter_enum_fuel_type%5D%5B1%5D=petrol&search%5Bfilter_enum_fuel_type%5D%5B2%5D=plugin-hybrid&"
+    "search%5Bfilter_enum_gearbox%5D=automatic&search%5Bfilter_enum_generation%5D=gen-e84-2009-2015&"
+    "search%5Bfilter_enum_has_registration%5D=1&search%5Bfilter_enum_registered%5D=1&"
+    "search%5Bfilter_float_mileage%3Afrom%5D=75000&search%5Bfilter_float_mileage%3Ato%5D=270000&"
+    "search%5Bfilter_float_price%3Afrom%5D=25000&search%5Bfilter_float_price%3Ato%5D=40000&"
+    "search%5Bfilter_float_year%3Ato%5D=2016&search%5Blat%5D=52.627&search%5Blon%5D=21.011&"
+    "search%5Border%5D=created_at_first%3Adesc"
+)
 
 
-def _fixture_url(name: str) -> str:
-    return (FIXTURES / name).resolve().as_uri()
+def _fixture_data(name: str) -> dict:
+    return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
+
+
+def _make_request(fixtures: dict[int, dict], captured_headers: list | None = None):
+    def request(payload: dict, headers: dict[str, str], timeout_s: float) -> dict:
+        if captured_headers is not None:
+            captured_headers.append(headers)
+        page = payload["variables"]["page"]
+        return fixtures[page]
+
+    return request
 
 
 def test_parse_two_pages(tmp_path: Path) -> None:
     output_path = tmp_path / "results.jsonl"
     state_path = tmp_path / "state.json"
 
+    fixtures = {
+        1: _fixture_data("graphql_page1.json"),
+        2: _fixture_data("graphql_page2.json"),
+    }
+
     state = parse_pages(
-        _fixture_url("page1.html"),
+        SAMPLE_URL,
         output_path,
         state_path,
         retry_attempts=2,
         backoff_base=0.01,
         delay_min=0.0,
         delay_max=0.0,
+        request_func=_make_request(fixtures),
     )
 
     lines = output_path.read_text(encoding="utf-8").splitlines()
     assert len(lines) == 3
     assert state.pages_completed == 2
     assert state.results_written == 3
-    assert state.next_url.endswith("page2.html")
+    assert "page=2" in state.next_url
 
 
 def test_resume_from_state(tmp_path: Path) -> None:
     output_path = tmp_path / "results.jsonl"
     state_path = tmp_path / "state.json"
 
+    fixtures = {
+        1: _fixture_data("graphql_page1.json"),
+        2: _fixture_data("graphql_page2.json"),
+    }
+
     first_state = parse_pages(
-        _fixture_url("page1.html"),
+        SAMPLE_URL,
         output_path,
         state_path,
         max_pages=1,
@@ -46,6 +78,7 @@ def test_resume_from_state(tmp_path: Path) -> None:
         backoff_base=0.01,
         delay_min=0.0,
         delay_max=0.0,
+        request_func=_make_request(fixtures),
     )
 
     lines_after_first = output_path.read_text(encoding="utf-8").splitlines()
@@ -54,13 +87,14 @@ def test_resume_from_state(tmp_path: Path) -> None:
     assert first_state.results_written == 2
 
     second_state = parse_pages(
-        _fixture_url("page1.html"),
+        SAMPLE_URL,
         output_path,
         state_path,
         retry_attempts=2,
         backoff_base=0.01,
         delay_min=0.0,
         delay_max=0.0,
+        request_func=_make_request(fixtures),
     )
 
     lines_after_second = output_path.read_text(encoding="utf-8").splitlines()
@@ -74,30 +108,11 @@ def test_custom_user_agent(tmp_path: Path) -> None:
     state_path = tmp_path / "state.json"
     custom_agent = "CustomAgent/1.0"
 
-    parse_pages(
-        _fixture_url("ua_page.html"),
-        output_path,
-        state_path,
-        retry_attempts=2,
-        backoff_base=0.01,
-        delay_min=0.0,
-        delay_max=0.0,
-        user_agent=custom_agent,
-        accept_language=None,
-        locale=None,
-        timezone_id=None,
-    )
-
-    record = json.loads(output_path.read_text(encoding="utf-8").splitlines()[0])
-    assert custom_agent in record["html"]
-
-
-def test_append_newer_stops_on_duplicate(tmp_path: Path) -> None:
-    output_path = tmp_path / "results.jsonl"
-    state_path = tmp_path / "state.json"
+    fixtures = {1: _fixture_data("graphql_page1.json")}
+    captured_headers: list[dict[str, str]] = []
 
     parse_pages(
-        _fixture_url("page1.html"),
+        SAMPLE_URL,
         output_path,
         state_path,
         max_pages=1,
@@ -105,13 +120,38 @@ def test_append_newer_stops_on_duplicate(tmp_path: Path) -> None:
         backoff_base=0.01,
         delay_min=0.0,
         delay_max=0.0,
+        user_agent=custom_agent,
+        accept_language=None,
+        request_func=_make_request(fixtures, captured_headers),
+    )
+
+    assert captured_headers
+    assert captured_headers[0]["User-Agent"] == custom_agent
+
+
+def test_append_newer_stops_on_duplicate(tmp_path: Path) -> None:
+    output_path = tmp_path / "results.jsonl"
+    state_path = tmp_path / "state.json"
+
+    fixtures = {1: _fixture_data("graphql_page1.json")}
+
+    parse_pages(
+        SAMPLE_URL,
+        output_path,
+        state_path,
+        max_pages=1,
+        retry_attempts=2,
+        backoff_base=0.01,
+        delay_min=0.0,
+        delay_max=0.0,
+        request_func=_make_request(fixtures),
     )
 
     lines_after_seed = output_path.read_text(encoding="utf-8").splitlines()
     assert len(lines_after_seed) == 2
 
     state = parse_pages(
-        _fixture_url("page1.html"),
+        SAMPLE_URL,
         output_path,
         state_path,
         run_mode=RUN_MODE_APPEND_NEWER,
@@ -119,6 +159,7 @@ def test_append_newer_stops_on_duplicate(tmp_path: Path) -> None:
         backoff_base=0.01,
         delay_min=0.0,
         delay_max=0.0,
+        request_func=_make_request(fixtures),
     )
 
     lines_after_append = output_path.read_text(encoding="utf-8").splitlines()
@@ -130,8 +171,13 @@ def test_full_overwrites_existing_output(tmp_path: Path) -> None:
     output_path = tmp_path / "results.jsonl"
     state_path = tmp_path / "state.json"
 
+    fixtures = {
+        1: _fixture_data("graphql_page1.json"),
+        2: _fixture_data("graphql_page2.json"),
+    }
+
     parse_pages(
-        _fixture_url("page1.html"),
+        SAMPLE_URL,
         output_path,
         state_path,
         max_pages=1,
@@ -139,11 +185,12 @@ def test_full_overwrites_existing_output(tmp_path: Path) -> None:
         backoff_base=0.01,
         delay_min=0.0,
         delay_max=0.0,
+        request_func=_make_request(fixtures),
     )
     assert len(output_path.read_text(encoding="utf-8").splitlines()) == 2
 
     state = parse_pages(
-        _fixture_url("page1.html"),
+        SAMPLE_URL,
         output_path,
         state_path,
         run_mode=RUN_MODE_FULL,
@@ -151,8 +198,31 @@ def test_full_overwrites_existing_output(tmp_path: Path) -> None:
         backoff_base=0.01,
         delay_min=0.0,
         delay_max=0.0,
+        request_func=_make_request(fixtures),
     )
 
     lines = output_path.read_text(encoding="utf-8").splitlines()
     assert len(lines) == 3
     assert state.pages_completed == 2
+
+
+def test_start_page_from_url(tmp_path: Path) -> None:
+    output_path = tmp_path / "results.jsonl"
+    state_path = tmp_path / "state.json"
+
+    fixtures = {2: _fixture_data("graphql_page2.json")}
+
+    parse_pages(
+        f"{SAMPLE_URL}&page=2",
+        output_path,
+        state_path,
+        max_pages=1,
+        retry_attempts=2,
+        backoff_base=0.01,
+        delay_min=0.0,
+        delay_max=0.0,
+        request_func=_make_request(fixtures),
+    )
+
+    lines = output_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1

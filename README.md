@@ -1,6 +1,6 @@
 # otomoto-parser
 
-Simple Playwright-based parser that paginates through results and appends items to a JSONL file.
+GraphQL-based parser that paginates through results and appends items to a JSONL file.
 
 ## Usage
 
@@ -27,3 +27,5 @@ To override output paths manually:
 ```
 otomoto-parser "https://www.otomoto.pl/..." --output /tmp/results.jsonl --state /tmp/state.json
 ```
+
+Each JSONL record includes the full GraphQL node/edge data so you get all available fields, including image URLs (e.g. thumbnail sizes).

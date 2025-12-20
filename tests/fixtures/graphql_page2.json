@@ -1,0 +1,40 @@
+{
+  "data": {
+    "advertSearch": {
+      "__typename": "AdvertSearch",
+      "totalCount": 3,
+      "pageInfo": {
+        "__typename": "Pager",
+        "pageSize": 2,
+        "currentOffset": 2
+      },
+      "url": "https://www.otomoto.pl/osobowe/bmw/x1?page=2",
+      "edges": [
+        {
+          "__typename": "AdvertEdge",
+          "vas": [],
+          "node": {
+            "__typename": "Advert",
+            "id": "1003",
+            "title": "BMW X1 3",
+            "createdAt": "2024-01-03T00:00:00Z",
+            "shortDescription": "Desc 3",
+            "url": "https://www.otomoto.pl/osobowe/oferta/3",
+            "thumbnail": {
+              "__typename": "Image",
+              "x1": "https://img.example/3x1.jpg",
+              "x2": "https://img.example/3x2.jpg"
+            },
+            "parameters": [
+              {"__typename": "Parameter", "name": "mileage", "value": "140000"}
+            ],
+            "location": {"__typename": "Location", "city": "Warsaw"},
+            "price": {"__typename": "Price", "value": 35000, "currency": "PLN"},
+            "priceEvaluation": {"__typename": "PriceEvaluation", "rating": "excellent"},
+            "cepikVerified": false
+          }
+        }
+      ]
+    }
+  }
+}

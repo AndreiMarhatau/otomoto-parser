@@ -1,0 +1,64 @@
+{
+  "data": {
+    "advertSearch": {
+      "__typename": "AdvertSearch",
+      "totalCount": 3,
+      "pageInfo": {
+        "__typename": "Pager",
+        "pageSize": 2,
+        "currentOffset": 0
+      },
+      "url": "https://www.otomoto.pl/osobowe/bmw/x1?page=1",
+      "edges": [
+        {
+          "__typename": "AdvertEdge",
+          "vas": [],
+          "node": {
+            "__typename": "Advert",
+            "id": "1001",
+            "title": "BMW X1 1",
+            "createdAt": "2024-01-01T00:00:00Z",
+            "shortDescription": "Desc 1",
+            "url": "https://www.otomoto.pl/osobowe/oferta/1",
+            "thumbnail": {
+              "__typename": "Image",
+              "x1": "https://img.example/1x1.jpg",
+              "x2": "https://img.example/1x2.jpg"
+            },
+            "parameters": [
+              {"__typename": "Parameter", "name": "mileage", "value": "100000"}
+            ],
+            "location": {"__typename": "Location", "city": "Warsaw"},
+            "price": {"__typename": "Price", "value": 30000, "currency": "PLN"},
+            "priceEvaluation": {"__typename": "PriceEvaluation", "rating": "good"},
+            "cepikVerified": true
+          }
+        },
+        {
+          "__typename": "AdvertEdge",
+          "vas": [],
+          "node": {
+            "__typename": "Advert",
+            "id": "1002",
+            "title": "BMW X1 2",
+            "createdAt": "2024-01-02T00:00:00Z",
+            "shortDescription": "Desc 2",
+            "url": "https://www.otomoto.pl/osobowe/oferta/2",
+            "thumbnail": {
+              "__typename": "Image",
+              "x1": "https://img.example/2x1.jpg",
+              "x2": "https://img.example/2x2.jpg"
+            },
+            "parameters": [
+              {"__typename": "Parameter", "name": "mileage", "value": "120000"}
+            ],
+            "location": {"__typename": "Location", "city": "Warsaw"},
+            "price": {"__typename": "Price", "value": 32000, "currency": "PLN"},
+            "priceEvaluation": {"__typename": "PriceEvaluation", "rating": "fair"},
+            "cepikVerified": true
+          }
+        }
+      ]
+    }
+  }
+}

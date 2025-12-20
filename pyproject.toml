@@ -1,12 +1,10 @@
 [project]
 name = "otomoto-parser"
 version = "0.1.0"
-description = "Simple pagination parser using Playwright"
+description = "GraphQL-based pagination parser for Otomoto"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = [
-  "playwright>=1.46.0",
-]
+dependencies = []
 
 [build-system]
 requires = ["setuptools>=64"]
