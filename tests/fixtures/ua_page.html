@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>User Agent Fixture</title>
+  </head>
+  <body>
+    <section data-testid="search-results">
+      <article id="ua">placeholder</article>
+    </section>
+    <button aria-label="Go to next Page" disabled>Next</button>
+    <script>
+      const el = document.getElementById("ua");
+      if (el) {
+        el.textContent = navigator.userAgent;
+      }
+    </script>
+  </body>
+</html>

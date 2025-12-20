@@ -1,0 +1,24 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# local outputs
+results.jsonl
+parser_state.json
+runs/
+
+# virtualenvs
+.venv/
+venv/
+
+# local config
+.env
