@@ -4,7 +4,10 @@ version = "0.1.0"
 description = "GraphQL-based pagination parser for Otomoto"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+  "openpyxl>=3.1.0",
+  "pandas>=2.2.0",
+]
 
 [build-system]
 requires = ["setuptools>=64"]
@@ -23,6 +26,7 @@ dev = [
 
 [project.scripts]
 otomoto-parser = "otomoto_parser.__main__:main"
+aggregation = "otomoto_parser.aggregation:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

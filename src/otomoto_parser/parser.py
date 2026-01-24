@@ -649,6 +649,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=DEFAULT_ACCEPT_LANGUAGE,
         help="Accept-Language header for requests",
     )
+    parser.add_argument(
+        "--aggregate",
+        dest="aggregate",
+        action="store_true",
+        default=True,
+        help="Generate aggregations sheet after parsing (default)",
+    )
+    parser.add_argument(
+        "--no-aggregate",
+        dest="aggregate",
+        action="store_false",
+        help="Skip generating the aggregations sheet",
+    )
+    parser.add_argument(
+        "--aggregation-output",
+        default=None,
+        help="Optional output path for aggregations xlsx",
+    )
     return parser
 
 
@@ -702,6 +720,11 @@ def main() -> None:
         user_agent=args.user_agent,
         accept_language=args.accept_language,
     )
+    if args.aggregate and output_path.exists() and output_path.stat().st_size > 0:
+        from .aggregation import generate_aggregations
+
+        aggregation_path = Path(args.aggregation_output) if args.aggregation_output else None
+        generate_aggregations(output_path, aggregation_path)
     print(
         json.dumps(
             {
