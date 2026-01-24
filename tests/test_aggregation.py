@@ -90,6 +90,17 @@ def test_generate_aggregations_creates_excel(tmp_path: Path) -> None:
     assert len(data_rows) == 2
 
 
+def test_generate_aggregations_overwrites_existing(tmp_path: Path) -> None:
+    input_path = tmp_path / "results.jsonl"
+    input_path.write_text(FIXTURE_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+    output_path = default_output_path(input_path)
+    output_path.write_text("old", encoding="utf-8")
+
+    generate_aggregations(input_path, output_path)
+    assert output_path.exists()
+    assert output_path.read_bytes() != b"old"
+
+
 def test_build_hier_rows_handles_empty() -> None:
     df = pd.DataFrame(columns=["make", "model", "body_type", "year", "price", "mileage", "registered"])
     out = build_hier_rows(df)

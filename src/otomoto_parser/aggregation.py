@@ -222,6 +222,8 @@ def autosize_columns(ws, min_width: int = 10, max_width: int = 45) -> None:
 
 def write_excel(df_out: pd.DataFrame, out_path: Path, sheet_name: str = "Aggregations") -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    if out_path.exists():
+        out_path.unlink()
 
     with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
         df_out.to_excel(writer, index=False, sheet_name=sheet_name)
