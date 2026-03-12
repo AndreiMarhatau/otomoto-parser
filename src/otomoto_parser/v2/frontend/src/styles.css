@@ -574,6 +574,11 @@ textarea {
   color: #6f3c00;
 }
 
+.chip-verified {
+  background: #d8efdf;
+  color: #1f6a42;
+}
+
 .chip-engine {
   background: #dbe9f8;
   color: #1f4e7a;

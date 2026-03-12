@@ -836,6 +836,9 @@ function ListingCard({ item, onOpenLocation, onOpenReport, distanceLabel }) {
   const createdAt = item.createdAt ? new Date(item.createdAt).toLocaleString() : "—";
   const reportDisabled = item.dataVerified !== true && item.vehicleReport?.cached !== true;
   const specs = [
+    ...(item.category === "Price evaluation out of range" && item.dataVerified === true
+      ? [{ label: "Status", value: "Verified data", tone: "verified" }]
+      : []),
     { label: "Price eval", value: item.priceEvaluation || "No price evaluation", tone: "price" },
     { label: "Engine", value: item.engineCapacity || "No engine capacity", tone: "engine" },
     { label: "Power", value: item.enginePower || "No power", tone: "engine" },
