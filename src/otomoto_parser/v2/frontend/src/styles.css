@@ -129,18 +129,41 @@ textarea {
 }
 
 .request-row {
-  display: block;
+  display: grid;
+  gap: 0.85rem;
   padding: 1rem;
   border-radius: 22px;
   background: #f8f3eb;
   border: 1px solid #e8dcc7;
-  text-decoration: none;
 }
 
 .request-row-top {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
+  align-items: start;
+}
+
+.request-row-main {
+  min-width: 0;
+  display: grid;
+  gap: 0.5rem;
+  text-decoration: none;
+}
+
+.request-row-title,
+.request-row-url {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.request-row-url {
+  color: #7e6243;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
 }
 
 .request-row p,
@@ -151,6 +174,7 @@ textarea {
 }
 
 .status-pill {
+  flex-shrink: 0;
   border-radius: 999px;
   padding: 0.35rem 0.7rem;
   font-size: 0.8rem;

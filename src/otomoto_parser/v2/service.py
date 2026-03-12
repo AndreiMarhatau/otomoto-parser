@@ -102,6 +102,13 @@ def _price_fields(node: dict[str, Any]) -> tuple[int | str | None, str]:
     return value, currency
 
 
+def _is_us_origin(country_origin: Any) -> bool:
+    if not isinstance(country_origin, str):
+        return False
+    normalized = country_origin.strip().lower()
+    return normalized in {"us", "usa", "united-states", "united_states"}
+
+
 def summarize_record(record: dict[str, Any]) -> dict[str, Any]:
     node = record.get("node") if isinstance(record.get("node"), dict) else {}
     parameters = _param_map(node.get("parameters"))
@@ -116,7 +123,7 @@ def summarize_record(record: dict[str, Any]) -> dict[str, Any]:
         category = CATEGORY_PRICE_OUT_OF_RANGE
     elif data_verified is False:
         category = CATEGORY_DATA_NOT_VERIFIED
-    elif isinstance(country_origin, str) and country_origin.lower() == "us":
+    elif _is_us_origin(country_origin):
         category = CATEGORY_IMPORTED_FROM_US
 
     return {

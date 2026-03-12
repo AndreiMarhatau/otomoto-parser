@@ -184,18 +184,29 @@ function RequestListPage() {
           {!loading && items.length === 0 ? <p className="muted">No requests yet.</p> : null}
           <div className="request-list">
             {items.map((item) => (
-              <Link key={item.id} to={`/requests/${item.id}`} className="request-row">
+              <article key={item.id} className="request-row">
                 <div className="request-row-top">
-                  <strong>{item.sourceUrl}</strong>
+                  <Link to={`/requests/${item.id}`} className="request-row-main">
+                    <strong className="request-row-title">{`Request ${item.id}`}</strong>
+                    <p>{item.progressMessage}</p>
+                    <div className="request-row-meta">
+                      <span>{item.resultsWritten} listings</span>
+                      <span>{item.pagesCompleted} pages</span>
+                      <span>{new Date(item.createdAt).toLocaleString()}</span>
+                    </div>
+                  </Link>
                   <StatusPill status={item.status} />
                 </div>
-                <p>{item.progressMessage}</p>
-                <div className="request-row-meta">
-                  <span>{item.resultsWritten} listings</span>
-                  <span>{item.pagesCompleted} pages</span>
-                  <span>{new Date(item.createdAt).toLocaleString()}</span>
-                </div>
-              </Link>
+                <a
+                  href={item.sourceUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="request-row-url"
+                  title={item.sourceUrl}
+                >
+                  {item.sourceUrl}
+                </a>
+              </article>
             ))}
           </div>
         </div>

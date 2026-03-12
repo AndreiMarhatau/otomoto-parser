@@ -356,6 +356,22 @@ def test_legacy_price_shape_is_used_for_result_cards(tmp_path: Path) -> None:
     assert item["priceCurrency"] == "PLN"
 
 
+def test_usa_origin_is_classified_as_imported_from_us(tmp_path: Path) -> None:
+    record = _record(
+        "usa-origin",
+        price_evaluation={"indicator": "IN"},
+        cepik_verified=True,
+        country_origin="usa",
+        title="USA origin",
+    )
+
+    results_path = tmp_path / "results.jsonl"
+    results_path.write_text(f"{json.dumps(record, ensure_ascii=True)}\n", encoding="utf-8")
+
+    payload = build_categorized_payload(results_path)
+    assert payload["categories"][CATEGORY_IMPORTED_FROM_US]["count"] == 1
+
+
 def test_api_request_lifecycle(tmp_path: Path) -> None:
     service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
     app = create_app(data_dir=tmp_path, service=service)
