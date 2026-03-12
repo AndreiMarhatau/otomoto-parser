@@ -301,6 +301,8 @@ textarea {
 .listing-card {
   position: relative;
   display: block;
+  width: 100%;
+  min-width: 0;
   padding: 1rem;
   border-radius: 24px;
   background: #fffdf8;
@@ -312,6 +314,7 @@ textarea {
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr);
   gap: 1rem;
+  min-width: 0;
   position: relative;
   z-index: 2;
   pointer-events: none;
@@ -345,13 +348,22 @@ textarea {
 
 .listing-topline {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 1rem;
   align-items: start;
+  min-width: 0;
 }
 
 .listing-topline h3 {
   margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.listing-content,
+.listing-place-row {
+  min-width: 0;
 }
 
 .listing-action-row {
@@ -363,7 +375,9 @@ textarea {
 .listing-report-button {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.7rem;
+  max-width: 100%;
   padding: 0.72rem 1rem;
   background: #1f1c18;
   color: #fff9f0;
@@ -404,6 +418,7 @@ textarea {
 .listing-place-text {
   font: inherit;
   color: #3d3122;
+  overflow-wrap: anywhere;
 }
 
 .listing-place-button {
@@ -417,6 +432,7 @@ textarea {
 .listing-distance-text {
   color: #6b5741;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .chip {
@@ -621,5 +637,15 @@ textarea {
 
   .map-frame {
     min-height: 320px;
+  }
+
+  .listing-topline {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .listing-report-button {
+    width: 100%;
+    justify-content: center;
   }
 }
