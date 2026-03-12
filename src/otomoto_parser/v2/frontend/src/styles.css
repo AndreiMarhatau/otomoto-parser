@@ -340,6 +340,57 @@ textarea {
   z-index: 3;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(24, 18, 12, 0.44);
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  z-index: 30;
+}
+
+.modal-panel {
+  width: min(900px, 100%);
+  max-height: 88vh;
+  overflow: auto;
+  background: #fffaf2;
+  border-radius: 28px;
+  padding: 1.25rem;
+  border: 1px solid #e6dac6;
+  box-shadow: 0 24px 48px rgba(48, 36, 21, 0.24);
+}
+
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 1rem;
+}
+
+.modal-head h2 {
+  margin: 0.25rem 0 0;
+}
+
+.modal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.map-frame {
+  width: 100%;
+  min-height: 420px;
+  border: 0;
+  border-radius: 22px;
+  background: #ece3d6;
+}
+
+.modal-footnote {
+  margin-bottom: 0;
+}
+
 .chip-label {
   font-size: 0.72rem;
   text-transform: uppercase;
@@ -387,5 +438,13 @@ textarea {
   .panel-grid,
   .listing-card-body {
     grid-template-columns: 1fr;
+  }
+
+  .modal-head {
+    flex-direction: column;
+  }
+
+  .map-frame {
+    min-height: 320px;
   }
 }

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +21,30 @@ from .service import ParserAppService
 
 class CreateRequestPayload(BaseModel):
     url: HttpUrl
+
+
+def geocode_location(query: str) -> dict[str, Any] | None:
+    request = Request(
+        f"https://nominatim.openstreetmap.org/search?{urlencode({'format': 'jsonv2', 'limit': 1, 'q': query})}",
+        headers={
+            "User-Agent": "otomoto-parser/0.1.0",
+            "Accept-Language": "en",
+        },
+    )
+    try:
+        with urlopen(request, timeout=15) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError, ValueError) as exc:
+        raise RuntimeError("Could not load map preview.") from exc
+
+    if not payload:
+        return None
+    first = payload[0]
+    return {
+        "lat": float(first["lat"]),
+        "lon": float(first["lon"]),
+        "label": first.get("display_name") or query,
+    }
 
 
 def frontend_dist_dir() -> Path:
@@ -108,6 +136,14 @@ def create_app(
             filename=f"otomoto-request-{request_id}.xlsx",
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
+
+    @app.get("/api/geocode")
+    def geocode_endpoint(query: str) -> dict[str, Any]:
+        try:
+            item = geocode_location(query)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return {"item": item}
 
     dist_dir = frontend_dist_dir()
     if dist_dir.exists():

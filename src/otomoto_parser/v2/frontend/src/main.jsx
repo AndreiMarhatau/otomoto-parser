@@ -10,6 +10,33 @@ const categoryOrder = [
   "To be checked",
 ];
 
+function haversineKm(a, b) {
+  const toRadians = (value) => (value * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const latDelta = toRadians(b.lat - a.lat);
+  const lonDelta = toRadians(b.lon - a.lon);
+  const lat1 = toRadians(a.lat);
+  const lat2 = toRadians(b.lat);
+
+  const sinLat = Math.sin(latDelta / 2);
+  const sinLon = Math.sin(lonDelta / 2);
+  const arc =
+    sinLat * sinLat +
+    Math.cos(lat1) * Math.cos(lat2) * sinLon * sinLon;
+
+  return 2 * earthRadiusKm * Math.asin(Math.sqrt(arc));
+}
+
+function buildOsmEmbedUrl(lat, lon) {
+  const lonDelta = 0.12;
+  const latDelta = 0.08;
+  const left = lon - lonDelta;
+  const right = lon + lonDelta;
+  const top = lat + latDelta;
+  const bottom = lat - latDelta;
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${left}%2C${bottom}%2C${right}%2C${top}&layer=mapnik&marker=${lat}%2C${lon}`;
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
@@ -313,11 +340,141 @@ function RequestDetailPage() {
   );
 }
 
-function ListingCard({ item }) {
+function LocationModal({ preview, onClose }) {
+  const [coords, setCoords] = React.useState(null);
+  const [geoError, setGeoError] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+  const [userCoords, setUserCoords] = React.useState(null);
+
+  React.useEffect(() => {
+    if (!preview) {
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    let active = true;
+
+    async function lookupLocation() {
+      setLoading(true);
+      setGeoError(null);
+      setCoords(null);
+      try {
+        const payload = await api(`/api/geocode?query=${encodeURIComponent(preview.location)}`, {
+          signal: controller.signal,
+        });
+        const item = payload.item;
+        if (active && item?.lat !== undefined && item?.lat !== null && item?.lon !== undefined && item?.lon !== null) {
+          setCoords(item);
+        }
+        if (active && !item) {
+          setGeoError("Location not found on map.");
+        }
+      } catch (error) {
+        if (active && error.name !== "AbortError") {
+          setGeoError("Could not load map preview.");
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
+
+    lookupLocation();
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          if (active) {
+            setUserCoords({
+              lat: position.coords.latitude,
+              lon: position.coords.longitude,
+            });
+          }
+        },
+        () => {
+          if (active) {
+            setUserCoords(null);
+          }
+        },
+        { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 },
+      );
+    }
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [preview]);
+
+  React.useEffect(() => {
+    if (!preview) {
+      return undefined;
+    }
+
+    function onKeyDown(event) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [preview, onClose]);
+
+  if (!preview) {
+    return null;
+  }
+
+  const distanceKm =
+    coords && userCoords ? haversineKm(userCoords, coords) : null;
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-panel" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <p className="eyebrow">Location preview</p>
+            <h2>{preview.location}</h2>
+            <p className="muted">{preview.title}</p>
+          </div>
+          <button type="button" className="button-secondary" onClick={onClose}>
+            Close
+          </button>
+        </div>
+
+        <div className="modal-meta">
+          <span className="chip chip-place">
+            <span className="chip-label">Maps</span>
+            <span>{coords?.label || preview.location}</span>
+          </span>
+          <span className="chip chip-time">
+            <span className="chip-label">Distance</span>
+            <span>{distanceKm !== null ? `~${distanceKm.toFixed(1)} km from you` : "Allow location to estimate distance"}</span>
+          </span>
+        </div>
+
+        {loading ? <p className="progress-box">Loading map preview...</p> : null}
+        {geoError ? <p className="error-text">{geoError}</p> : null}
+        {coords ? (
+          <iframe
+            className="map-frame"
+            title={`Map for ${preview.location}`}
+            src={buildOsmEmbedUrl(coords.lat, coords.lon)}
+            loading="lazy"
+          />
+        ) : null}
+
+        <p className="muted modal-footnote">
+          Distance is an approximate straight-line estimate from your browser location.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function ListingCard({ item, onOpenLocation }) {
   const createdAt = item.createdAt ? new Date(item.createdAt).toLocaleString() : "—";
-  const locationMapsUrl = item.location
-    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.location)}`
-    : null;
   const specs = [
     { label: "Price eval", value: item.priceEvaluation || "No price evaluation", tone: "price" },
     { label: "Engine", value: item.engineCapacity || "No engine capacity", tone: "engine" },
@@ -330,8 +487,8 @@ function ListingCard({ item }) {
       label: "Location",
       value: item.location || "No location",
       tone: "place",
-      mapsUrl: locationMapsUrl,
-      title: item.location ? `Open ${item.location} in Google Maps` : undefined,
+      onClick: item.location ? () => onOpenLocation({ title: item.title, location: item.location }) : null,
+      title: item.location ? `Preview ${item.location} on map` : undefined,
     },
     { label: "Created", value: createdAt, tone: "time" },
   ];
@@ -357,13 +514,13 @@ function ListingCard({ item }) {
           <p className="muted">{item.shortDescription || "No short description."}</p>
           <div className="chip-row">
             {specs.map((spec) => (
-              spec.mapsUrl ? (
+              spec.onClick ? (
                 <button
                   type="button"
                   key={spec.label}
                   className={`chip chip-${spec.tone} chip-link chip-interactive`}
                   title={spec.title}
-                  onClick={() => window.open(spec.mapsUrl, "_blank", "noopener,noreferrer")}
+                  onClick={spec.onClick}
                 >
                   <span className="chip-label">{spec.label}</span>
                   <span>{spec.value}</span>
@@ -390,6 +547,7 @@ function RequestResultsPage() {
   const [results, setResults] = React.useState(null);
   const [resultsError, setResultsError] = React.useState(null);
   const [activeCategory, setActiveCategory] = React.useState(categoryOrder[0]);
+  const [locationPreview, setLocationPreview] = React.useState(null);
 
   React.useEffect(() => {
     let active = true;
@@ -468,12 +626,17 @@ function RequestResultsPage() {
             <div className="listing-grid">
               {currentItems.length === 0 ? <p className="muted">No listings in this category.</p> : null}
               {currentItems.map((item) => (
-                <ListingCard key={item.id} item={item} />
+                <ListingCard key={item.id} item={item} onOpenLocation={setLocationPreview} />
               ))}
             </div>
           </>
         ) : null}
       </section>
+      <LocationModal
+        key={locationPreview ? `${locationPreview.title}-${locationPreview.location}` : "no-location-preview"}
+        preview={locationPreview}
+        onClose={() => setLocationPreview(null)}
+      />
     </Shell>
   );
 }
