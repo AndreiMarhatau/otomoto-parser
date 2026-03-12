@@ -135,6 +135,18 @@ textarea {
   border-radius: 22px;
   background: #f8f3eb;
   border: 1px solid #e8dcc7;
+  cursor: pointer;
+  transition: transform 140ms ease, box-shadow 140ms ease;
+}
+
+.request-row:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 24px rgba(87, 65, 38, 0.08);
+}
+
+.request-row:focus-visible {
+  outline: 2px solid #7e6243;
+  outline-offset: 3px;
 }
 
 .request-row-top {

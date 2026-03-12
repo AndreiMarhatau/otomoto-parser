@@ -184,9 +184,24 @@ function RequestListPage() {
           {!loading && items.length === 0 ? <p className="muted">No requests yet.</p> : null}
           <div className="request-list">
             {items.map((item) => (
-              <article key={item.id} className="request-row">
+              <article
+                key={item.id}
+                className="request-row"
+                role="link"
+                tabIndex={0}
+                onClick={() => navigate(`/requests/${item.id}`)}
+                onKeyDown={(event) => {
+                  if (event.target !== event.currentTarget) {
+                    return;
+                  }
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    navigate(`/requests/${item.id}`);
+                  }
+                }}
+              >
                 <div className="request-row-top">
-                  <Link to={`/requests/${item.id}`} className="request-row-main">
+                  <div className="request-row-main">
                     <strong className="request-row-title">{`Request ${item.id}`}</strong>
                     <p>{item.progressMessage}</p>
                     <div className="request-row-meta">
@@ -194,7 +209,7 @@ function RequestListPage() {
                       <span>{item.pagesCompleted} pages</span>
                       <span>{new Date(item.createdAt).toLocaleString()}</span>
                     </div>
-                  </Link>
+                  </div>
                   <StatusPill status={item.status} />
                 </div>
                 <a
@@ -203,7 +218,8 @@ function RequestListPage() {
                   rel="noreferrer"
                   className="request-row-url"
                   title={item.sourceUrl}
-                >
+                  onClick={(event) => event.stopPropagation()}
+                  >
                   {item.sourceUrl}
                 </a>
               </article>
