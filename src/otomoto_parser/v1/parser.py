@@ -594,10 +594,12 @@ def _resolve_canonical_make_model_filters(
     page_total_count = _extract_search_page_total_count(html)
     resolved_filters = [dict(item) for item in filters]
     seen_names = {item["name"] for item in resolved_filters}
+    seen_pairs = {(item["name"], item["value"]) for item in resolved_filters}
     for item in resolved_filters:
         resolved_value = mappings.get((item["name"], item["value"]))
         if resolved_value:
             item["value"] = resolved_value
+            seen_pairs.add((item["name"], item["value"]))
             continue
         if item["name"] not in inferred_names:
             continue
@@ -610,7 +612,15 @@ def _resolve_canonical_make_model_filters(
             item["name"] = candidate["name"]
             item["value"] = candidate["value"]
             seen_names.add(item["name"])
+            seen_pairs.add((item["name"], item["value"]))
             break
+    for candidate in applied_filters:
+        pair = (candidate["name"], candidate["value"])
+        if pair in seen_pairs:
+            continue
+        resolved_filters.append({"name": candidate["name"], "value": candidate["value"]})
+        seen_names.add(candidate["name"])
+        seen_pairs.add(pair)
     return resolved_filters, False, page_total_count
 
 
