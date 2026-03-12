@@ -293,7 +293,8 @@ def test_resolve_inferred_location_slug_to_city_id() -> None:
         '{\\"name\\":\\"filter_float_year:from\\",\\"value\\":\\"2010\\",\\"canonical\\":\\"2010\\"},'
         '{\\"name\\":\\"city_id\\",\\"value\\":\\"19701\\",\\"canonical\\":\\"wroclaw\\"},'
         '{\\"name\\":\\"lat\\",\\"value\\":\\"51.10195\\",\\"canonical\\":\\"51.10195\\"},'
-        '{\\"name\\":\\"lon\\",\\"value\\":\\"17.03667\\",\\"canonical\\":\\"17.03667\\"}'
+        '{\\"name\\":\\"lon\\",\\"value\\":\\"17.03667\\",\\"canonical\\":\\"17.03667\\"},'
+        '{\\"name\\":\\"dist\\",\\"value\\":\\"50\\",\\"canonical\\":\\"50\\"}'
         ']}}"}}}}</script>'
     )
 
@@ -308,4 +309,5 @@ def test_resolve_inferred_location_slug_to_city_id() -> None:
 
     assert fetch_failed is False
     assert total_count == 37
-    assert resolved[-1] == {"name": "city_id", "value": "19701"}
+    assert {"name": "city_id", "value": "19701"} in resolved
+    assert {"name": "dist", "value": "50"} in resolved
