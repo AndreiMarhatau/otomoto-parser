@@ -24,6 +24,18 @@ That starts the Python backend and serves the built React UI from the same proce
 
 The app stores request history, parser progress, categorized results, and Excel exports under `.parser-app-data/` by default.
 
+## Docker
+
+Build and run with Docker Compose:
+
+```
+docker compose up --build
+```
+
+The app will be available at `http://127.0.0.1:8000`.
+
+Persistent app data is stored in the named Docker volume `parser_app_data`, mounted inside the container at `/data`.
+
 ## Usage
 
 ## v1 CLI usage

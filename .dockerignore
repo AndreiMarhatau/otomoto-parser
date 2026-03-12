@@ -1,0 +1,12 @@
+.git
+.github
+.parser-app-data
+.pytest_cache
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+node_modules
+src/otomoto_parser/v2/frontend/node_modules
+runs
