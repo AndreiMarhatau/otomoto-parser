@@ -288,6 +288,17 @@ function RequestDetailPage() {
 
 function ListingCard({ item }) {
   const createdAt = item.createdAt ? new Date(item.createdAt).toLocaleString() : "—";
+  const specs = [
+    { label: "Price eval", value: item.priceEvaluation || "No price evaluation", tone: "price" },
+    { label: "Engine", value: item.engineCapacity || "No engine capacity", tone: "engine" },
+    { label: "Power", value: item.enginePower || "No power", tone: "engine" },
+    { label: "Year", value: item.year || "No year", tone: "year" },
+    { label: "Mileage", value: item.mileage || "No mileage", tone: "mileage" },
+    { label: "Fuel", value: item.fuelType || "No fuel type", tone: "drive" },
+    { label: "Gearbox", value: item.transmission || "No transmission", tone: "drive" },
+    { label: "Location", value: item.location || "No location", tone: "place" },
+    { label: "Created", value: createdAt, tone: "time" },
+  ];
 
   return (
     <a href={item.url} target="_blank" rel="noreferrer" className="listing-card">
@@ -301,15 +312,12 @@ function ListingCard({ item }) {
         </div>
         <p className="muted">{item.shortDescription || "No short description."}</p>
         <div className="chip-row">
-          <span className="chip">{item.priceEvaluation || "No price evaluation"}</span>
-          <span className="chip">{item.engineCapacity || "No engine capacity"}</span>
-          <span className="chip">{item.enginePower || "No power"}</span>
-          <span className="chip">{item.year || "No year"}</span>
-          <span className="chip">{item.mileage || "No mileage"}</span>
-          <span className="chip">{item.fuelType || "No fuel type"}</span>
-          <span className="chip">{item.transmission || "No transmission"}</span>
-          <span className="chip">{item.location || "No location"}</span>
-          <span className="chip">{createdAt}</span>
+          {specs.map((spec) => (
+            <span key={spec.label} className={`chip chip-${spec.tone}`}>
+              <span className="chip-label">{spec.label}</span>
+              <span>{spec.value}</span>
+            </span>
+          ))}
         </div>
       </div>
     </a>

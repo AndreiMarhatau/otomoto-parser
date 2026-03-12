@@ -131,8 +131,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data-dir", default=".parser-app-data")
     parser.add_argument("--retries", type=int, default=4)
     parser.add_argument("--backoff", type=float, default=1.0)
-    parser.add_argument("--delay-min", type=float, default=2.0)
-    parser.add_argument("--delay-max", type=float, default=4.0)
+    parser.add_argument("--delay-min", type=float, default=10.0)
+    parser.add_argument("--delay-max", type=float, default=20.0)
     parser.add_argument("--request-timeout-s", type=float, default=45.0)
     return parser
 
