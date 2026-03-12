@@ -87,9 +87,23 @@ def _price_evaluation_display(price_evaluation: Any) -> str | None:
         return None
     for key in ("indicator", "rating"):
         value = price_evaluation.get(key)
-        if isinstance(value, str) and value:
+        if isinstance(value, str) and value and value.upper() != "NONE":
             return value
     return None
+
+
+def _is_out_of_range_price_evaluation(price_evaluation: Any) -> bool:
+    if not isinstance(price_evaluation, dict) or not price_evaluation:
+        return True
+    seen_value = False
+    for key in ("indicator", "rating"):
+        value = price_evaluation.get(key)
+        if not isinstance(value, str) or not value:
+            continue
+        seen_value = True
+        if value.upper() != "NONE":
+            return False
+    return seen_value
 
 
 def _price_fields(node: dict[str, Any]) -> tuple[int | str | None, str]:
@@ -119,7 +133,7 @@ def summarize_record(record: dict[str, Any]) -> dict[str, Any]:
     data_verified = node.get("cepikVerified")
 
     category = CATEGORY_TO_BE_CHECKED
-    if not price_evaluation:
+    if _is_out_of_range_price_evaluation(price_evaluation):
         category = CATEGORY_PRICE_OUT_OF_RANGE
     elif data_verified is False:
         category = CATEGORY_DATA_NOT_VERIFIED

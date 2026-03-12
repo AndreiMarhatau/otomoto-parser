@@ -372,6 +372,22 @@ def test_usa_origin_is_classified_as_imported_from_us(tmp_path: Path) -> None:
     assert payload["categories"][CATEGORY_IMPORTED_FROM_US]["count"] == 1
 
 
+def test_none_price_evaluation_is_classified_as_out_of_range(tmp_path: Path) -> None:
+    record = _record(
+        "none-price-eval",
+        price_evaluation={"indicator": "NONE"},
+        cepik_verified=True,
+        country_origin="pl",
+        title="No price evaluation",
+    )
+
+    results_path = tmp_path / "results.jsonl"
+    results_path.write_text(f"{json.dumps(record, ensure_ascii=True)}\n", encoding="utf-8")
+
+    payload = build_categorized_payload(results_path)
+    assert payload["categories"][CATEGORY_PRICE_OUT_OF_RANGE]["count"] == 1
+
+
 def test_api_request_lifecycle(tmp_path: Path) -> None:
     service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
     app = create_app(data_dir=tmp_path, service=service)
