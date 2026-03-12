@@ -379,6 +379,10 @@ textarea {
   margin: 1rem 0;
 }
 
+.modal-actions {
+  margin-top: 1rem;
+}
+
 .map-frame {
   width: 100%;
   min-height: 420px;

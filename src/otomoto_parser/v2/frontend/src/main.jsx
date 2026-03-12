@@ -37,6 +37,10 @@ function buildOsmEmbedUrl(lat, lon) {
   return `https://www.openstreetmap.org/export/embed.html?bbox=${left}%2C${bottom}%2C${right}%2C${top}&layer=mapnik&marker=${lat}%2C${lon}`;
 }
 
+function buildGoogleMapsUrl(location) {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`;
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
@@ -428,6 +432,7 @@ function LocationModal({ preview, onClose }) {
 
   const distanceKm =
     coords && userCoords ? haversineKm(userCoords, coords) : null;
+  const googleMapsUrl = buildGoogleMapsUrl(preview.location);
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -464,6 +469,12 @@ function LocationModal({ preview, onClose }) {
             loading="lazy"
           />
         ) : null}
+
+        <div className="modal-actions">
+          <a href={googleMapsUrl} target="_blank" rel="noreferrer" className="button-link">
+            Open in Google Maps
+          </a>
+        </div>
 
         <p className="muted modal-footnote">
           Distance is an approximate straight-line estimate from your browser location.
