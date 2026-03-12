@@ -265,6 +265,7 @@ def test_resolve_canonical_model_filter_value() -> None:
     resolved, fetch_failed, total_count = _resolve_canonical_make_model_filters(
         "https://www.otomoto.pl/osobowe/mercedes-benz/cla-klasa",
         filters,
+        {"filter_enum_make", "filter_enum_model"},
         headers={},
         timeout_s=1.0,
         page_request_func=page_request,
@@ -274,3 +275,37 @@ def test_resolve_canonical_model_filter_value() -> None:
     assert total_count is None
     assert resolved[1]["value"] == "mercedes-benz"
     assert resolved[2]["value"] == "cla"
+
+
+def test_resolve_inferred_location_slug_to_city_id() -> None:
+    filters = [
+        {"name": "category_id", "value": "29"},
+        {"name": "filter_float_year:from", "value": "2010"},
+        {"name": "lat", "value": "51.10195"},
+        {"name": "lon", "value": "17.03667"},
+        {"name": "filter_enum_make", "value": "wroclaw"},
+    ]
+
+    page_html = (
+        '<script id="__NEXT_DATA__" type="application/json">'
+        '{"props":{"pageProps":{"cache":{"listing":"{\\"advertSearch\\":{\\"totalCount\\":37,\\"appliedFilters\\":['
+        '{\\"name\\":\\"category_id\\",\\"value\\":\\"29\\",\\"canonical\\":\\"osobowe\\"},'
+        '{\\"name\\":\\"filter_float_year:from\\",\\"value\\":\\"2010\\",\\"canonical\\":\\"2010\\"},'
+        '{\\"name\\":\\"city_id\\",\\"value\\":\\"19701\\",\\"canonical\\":\\"wroclaw\\"},'
+        '{\\"name\\":\\"lat\\",\\"value\\":\\"51.10195\\",\\"canonical\\":\\"51.10195\\"},'
+        '{\\"name\\":\\"lon\\",\\"value\\":\\"17.03667\\",\\"canonical\\":\\"17.03667\\"}'
+        ']}}"}}}}</script>'
+    )
+
+    resolved, fetch_failed, total_count = _resolve_canonical_make_model_filters(
+        "https://www.otomoto.pl/osobowe/seg-city-car--seg-compact--seg-sedan--seg-suv/od-2010/wroclaw",
+        filters,
+        {"filter_enum_make"},
+        headers={},
+        timeout_s=1.0,
+        page_request_func=lambda url, headers, timeout_s: page_html,
+    )
+
+    assert fetch_failed is False
+    assert total_count == 37
+    assert resolved[-1] == {"name": "city_id", "value": "19701"}
