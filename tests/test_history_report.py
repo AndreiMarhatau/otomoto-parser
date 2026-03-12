@@ -145,9 +145,34 @@ def test_fetch_report_retries_on_500_but_not_on_400() -> None:
         backoff_base_s=0.0,
         retry_attempts=3,
     )
-    with pytest.raises(HTTPError):
+    with pytest.raises(RuntimeError, match="HistoriaPojazdu vehicle-data failed with HTTP 406"):
         client_400.fetch_report("DX04419", "VF36D6FZM21283134", "2005-01-01")
     assert attempts_400["vehicle-data"] == 1
+
+
+def test_fetch_report_treats_optional_external_404_as_unavailable() -> None:
+    jar = CookieJar()
+
+    def handler(request):
+        if "engine/ng/index" in request.full_url:
+            jar.set_cookie(_make_cookie("XSRF-TOKEN", "token-123"))
+            return _FakeResponse('<script src="/nforms/api/HistoriaPojazdu/1.0.20/resource?uri=main.js"></script>')
+        endpoint = request.full_url.rsplit("/", 1)[-1]
+        if endpoint == "vehicle-data":
+            return _FakeResponse('{"technicalData":{"basicData":{"make":"PEUGEOT"}}}')
+        raise HTTPError(request.full_url, 404, "Not Found", hdrs=None, fp=None)
+
+    client = VehicleHistoryClient(
+        opener=_FakeOpener(handler),
+        cookie_jar=jar,
+        backoff_base_s=0.0,
+        retry_attempts=0,
+    )
+
+    report = client.fetch_report("DX04419", "VF36D6FZM21283134", "2005-01-01")
+    assert report.technical_data["technicalData"]["basicData"]["make"] == "PEUGEOT"
+    assert report.autodna_data["unavailable"] is True
+    assert report.carfax_data["unavailable"] is True
 
 
 def test_custom_opener_cookie_jar_is_discovered_and_zero_retries_still_runs() -> None:

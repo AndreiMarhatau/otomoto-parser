@@ -76,6 +76,17 @@ def _raise_for_status(error: HTTPError) -> None:
     raise error
 
 
+def _error_detail(error: HTTPError) -> str:
+    detail = error.reason or "Unexpected upstream error."
+    if error.fp is None:
+        return str(detail)
+    try:
+        body = error.fp.read().decode("utf-8", "replace").strip()
+    except Exception:  # noqa: BLE001
+        return str(detail)
+    return body or str(detail)
+
+
 def _with_retry(
     action,
     *,
@@ -167,13 +178,26 @@ class VehicleHistoryClient:
 
         responses: dict[str, dict[str, Any]] = {}
         for endpoint in DATA_ENDPOINTS:
-            responses[endpoint] = self._post_data(
-                api_version=api_version,
-                endpoint=endpoint,
-                nf_wid=nf_wid,
-                xsrf_token=xsrf_token,
-                payload=payload,
-            )
+            try:
+                responses[endpoint] = self._post_data(
+                    api_version=api_version,
+                    endpoint=endpoint,
+                    nf_wid=nf_wid,
+                    xsrf_token=xsrf_token,
+                    payload=payload,
+                )
+            except HTTPError as exc:
+                if endpoint in {"autodna-data", "carfax-data"} and exc.code == 404:
+                    responses[endpoint] = {
+                        "unavailable": True,
+                        "status": exc.code,
+                        "message": "This external report is not available for the vehicle.",
+                    }
+                    continue
+                detail = _error_detail(exc)
+                raise RuntimeError(f"HistoriaPojazdu {endpoint} failed with HTTP {exc.code}: {detail}") from exc
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError(f"HistoriaPojazdu {endpoint} failed: {exc}") from exc
 
         return VehicleHistoryReport(
             registration_number=registration_number,

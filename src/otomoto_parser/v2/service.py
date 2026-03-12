@@ -539,6 +539,8 @@ class ParserAppService:
         technical_data = history.technical_data.get("technicalData", {})
         basic_data = technical_data.get("basicData", {}) if isinstance(technical_data, dict) else {}
         ownership_history = technical_data.get("ownershipHistory", {}) if isinstance(technical_data, dict) else {}
+        autodna_unavailable = isinstance(history.autodna_data, dict) and history.autodna_data.get("unavailable") is True
+        carfax_unavailable = isinstance(history.carfax_data, dict) and history.carfax_data.get("unavailable") is True
         return {
             "make": basic_data.get("make"),
             "model": basic_data.get("model"),
@@ -552,8 +554,10 @@ class ParserAppService:
             "ownersCount": ownership_history.get("numberOfOwners"),
             "coOwnersCount": ownership_history.get("numberOfCoowners"),
             "lastOwnershipChange": ownership_history.get("dateOfLastOwnershipChange"),
-            "autodnaAvailable": bool(history.autodna_data),
-            "carfaxAvailable": bool(history.carfax_data),
+            "autodnaAvailable": bool(history.autodna_data) and not autodna_unavailable,
+            "carfaxAvailable": bool(history.carfax_data) and not carfax_unavailable,
+            "autodnaUnavailable": autodna_unavailable,
+            "carfaxUnavailable": carfax_unavailable,
         }
 
     def _update_progress(self, request_id: str, payload: dict[str, Any]) -> None:

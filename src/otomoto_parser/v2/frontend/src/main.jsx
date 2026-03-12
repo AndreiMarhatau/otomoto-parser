@@ -804,8 +804,8 @@ function VehicleReportModal({ state, onClose, onRegenerate }) {
               <DataPairs
                 entries={[
                   { label: "Historia Pojazdu API", value: report.api_version || "—" },
-                  { label: "AutoDNA payload", value: summary.autodnaAvailable ? "Available" : "Empty" },
-                  { label: "Carfax payload", value: summary.carfaxAvailable ? "Available" : "Empty" },
+                  { label: "AutoDNA payload", value: summary.autodnaAvailable ? "Available" : summary.autodnaUnavailable ? "Unavailable" : "Empty" },
+                  { label: "Carfax payload", value: summary.carfaxAvailable ? "Available" : summary.carfaxUnavailable ? "Unavailable" : "Empty" },
                   { label: "Advert id", value: identity.advertId },
                 ]}
               />
