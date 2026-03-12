@@ -424,6 +424,40 @@ def _extract_search_page_total_count(html: str) -> int | None:
     return None
 
 
+def _extract_applied_filters(html: str) -> list[dict[str, str]]:
+    next_data_match = re.search(
+        r'<script\b(?=[^>]*\bid=["\']__NEXT_DATA__["\'])(?=[^>]*\btype=["\']application/json["\'])[^>]*>(?P<body>.*?)</script>',
+        html,
+        re.DOTALL,
+    )
+    if not next_data_match:
+        return []
+    try:
+        next_data = json.loads(next_data_match.group("body"))
+    except json.JSONDecodeError:
+        return []
+
+    for item in _iter_embedded_json_values(next_data):
+        advert_search = item.get("advertSearch") if isinstance(item, dict) else None
+        if not isinstance(advert_search, dict):
+            continue
+        applied = advert_search.get("appliedFilters")
+        if not isinstance(applied, list):
+            continue
+        result: list[dict[str, str]] = []
+        for candidate in applied:
+            if not isinstance(candidate, dict):
+                continue
+            name = candidate.get("name")
+            value = candidate.get("value")
+            canonical = candidate.get("canonical")
+            if isinstance(name, str) and isinstance(value, str) and isinstance(canonical, str):
+                result.append({"name": name, "value": value, "canonical": canonical})
+        if result:
+            return result
+    return []
+
+
 def _item_key_from_node(node: dict) -> tuple[str, str | None]:
     item_id = node.get("id")
     if isinstance(item_id, str) and item_id:
@@ -518,6 +552,7 @@ def _fetch_page_text(url: str, headers: dict[str, str], timeout_s: float) -> str
 def _resolve_canonical_make_model_filters(
     url: str,
     filters: list[dict[str, str]],
+    inferred_names: set[str],
     *,
     headers: dict[str, str],
     timeout_s: float,
@@ -553,19 +588,29 @@ def _resolve_canonical_make_model_filters(
             str(exc),
         )
         return filters, True, None
-    target_names = {"filter_enum_make", "filter_enum_model"}
+    target_names = {item["name"] for item in filters if isinstance(item.get("name"), str)}
     mappings = _extract_canonical_filter_mappings(html, target_names)
+    applied_filters = _extract_applied_filters(html)
     page_total_count = _extract_search_page_total_count(html)
     resolved_filters = [dict(item) for item in filters]
-    matched_names: set[str] = set()
-    for index in (make_index, model_index):
-        if index is None:
-            continue
-        item = resolved_filters[index]
+    seen_names = {item["name"] for item in resolved_filters}
+    for item in resolved_filters:
         resolved_value = mappings.get((item["name"], item["value"]))
         if resolved_value:
-            matched_names.add(item["name"])
             item["value"] = resolved_value
+            continue
+        if item["name"] not in inferred_names:
+            continue
+        for candidate in applied_filters:
+            if candidate["canonical"] != item["value"]:
+                continue
+            if candidate["name"] != item["name"] and candidate["name"] in seen_names:
+                continue
+            seen_names.discard(item["name"])
+            item["name"] = candidate["name"]
+            item["value"] = candidate["value"]
+            seen_names.add(item["name"])
+            break
     return resolved_filters, False, page_total_count
 
 
@@ -601,7 +646,7 @@ def parse_pages(
         LOGGER.info("Existing state URL does not match the requested URL. Starting fresh.")
         state = None
 
-    filters, sort_by, start_page, _ = _parse_filters_from_url(start_url)
+    filters, sort_by, start_page, inferred_names = _parse_filters_from_url(start_url)
     if state and not state.has_more:
         LOGGER.info("State indicates no more pages to fetch. Exiting.")
         _emit_progress(progress_callback, "complete", state=asdict(state), next_url=state.next_url)
@@ -646,6 +691,7 @@ def parse_pages(
         filters, _, page_total_count = _resolve_canonical_make_model_filters(
             start_url,
             filters,
+            inferred_names,
             headers=headers,
             timeout_s=request_timeout_s,
             page_request_func=page_request_func,
