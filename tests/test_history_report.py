@@ -6,7 +6,11 @@ from urllib.error import HTTPError
 
 import pytest
 
-from otomoto_parser.v1.history_report import VehicleHistoryClient, _normalize_first_registration_date
+from otomoto_parser.v1.history_report import (
+    VehicleHistoryClient,
+    _normalize_first_registration_date,
+    _normalize_registration_number,
+)
 
 
 def _make_cookie(name: str, value: str) -> Cookie:
@@ -59,6 +63,7 @@ class _FakeOpener:
 def test_normalize_first_registration_date() -> None:
     assert _normalize_first_registration_date("2005-01-01") == "2005-01-01"
     assert _normalize_first_registration_date("01.01.2005") == "2005-01-01"
+    assert _normalize_registration_number("LUB 0835R") == "LUB0835R"
 
 
 def test_fetch_report_bootstraps_session_and_reuses_nf_wid() -> None:
