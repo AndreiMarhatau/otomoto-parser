@@ -10,6 +10,113 @@ const categoryOrder = [
   "To be checked",
 ];
 
+const inProgressStatuses = new Set(["pending", "running", "categorizing"]);
+
+function haversineKm(a, b) {
+  const toRadians = (value) => (value * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const latDelta = toRadians(b.lat - a.lat);
+  const lonDelta = toRadians(b.lon - a.lon);
+  const lat1 = toRadians(a.lat);
+  const lat2 = toRadians(b.lat);
+
+  const sinLat = Math.sin(latDelta / 2);
+  const sinLon = Math.sin(lonDelta / 2);
+  const arc =
+    sinLat * sinLat +
+    Math.cos(lat1) * Math.cos(lat2) * sinLon * sinLon;
+
+  return 2 * earthRadiusKm * Math.asin(Math.sqrt(arc));
+}
+
+function buildOsmEmbedUrl(lat, lon) {
+  const lonDelta = 0.12;
+  const latDelta = 0.08;
+  const left = lon - lonDelta;
+  const right = lon + lonDelta;
+  const top = lat + latDelta;
+  const bottom = lat - latDelta;
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${left}%2C${bottom}%2C${right}%2C${top}&layer=mapnik&marker=${lat}%2C${lon}`;
+}
+
+function buildGoogleMapsUrl(location) {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`;
+}
+
+function formatDistanceChip(itemLocation, geolocationState, locationEntry) {
+  if (!itemLocation) {
+    return "No location";
+  }
+  if (geolocationState.status === "denied") {
+    return "Location blocked";
+  }
+  if (geolocationState.status === "unavailable") {
+    return "Location unavailable";
+  }
+  if (!geolocationState.coords) {
+    return "Locating you...";
+  }
+  if (!locationEntry || locationEntry.status === "loading") {
+    return "Finding place...";
+  }
+  if (locationEntry.status === "error") {
+    return "Lookup failed";
+  }
+  const distanceKm = haversineKm(geolocationState.coords, locationEntry.coords);
+  return `~${distanceKm.toFixed(1)} km from you`;
+}
+
+function IconRefresh() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M20 12a8 8 0 1 1-2.34-5.66" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M20 4v6h-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function IconClose() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconTrash() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 7h16M9 7V4h6v3M8 7l1 12h6l1-12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function IconExternal() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M14 5h5v5M19 5l-8 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M19 14v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function IconButton({ title, onClick, href, disabled = false, tone = "default", children }) {
+  const className = `icon-button icon-button-${tone}${disabled ? " icon-button-disabled" : ""}`;
+  if (href) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer" className={className} title={title} aria-label={title}>
+        {children}
+      </a>
+    );
+  }
+
+  return (
+    <button type="button" className={className} title={title} aria-label={title} onClick={onClick} disabled={disabled}>
+      {children}
+    </button>
+  );
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
@@ -148,6 +255,23 @@ function RequestListPage() {
     }
   }
 
+  async function removeRequest(requestId) {
+    const request = items.find((item) => item.id === requestId);
+    if (request && inProgressStatuses.has(request.status)) {
+      window.alert("This request is still running and cannot be removed yet.");
+      return;
+    }
+    if (!window.confirm("Remove this request and its stored files?")) {
+      return;
+    }
+    try {
+      await api(`/api/requests/${requestId}`, { method: "DELETE" });
+      await reload();
+    } catch (removeError) {
+      window.alert(removeError.message);
+    }
+  }
+
   const items = data?.items || [];
 
   return (
@@ -170,9 +294,9 @@ function RequestListPage() {
               <button type="submit" disabled={creating}>
                 {creating ? "Creating..." : "Create request"}
               </button>
-              <button type="button" className="button-secondary" onClick={() => reload()}>
-                Refresh list
-              </button>
+              <IconButton title="Refresh request list" tone="secondary" onClick={() => reload()}>
+                <IconRefresh />
+              </IconButton>
             </div>
             {error ? <p className="error-text">{error}</p> : null}
           </form>
@@ -210,7 +334,20 @@ function RequestListPage() {
                       <span>{new Date(item.createdAt).toLocaleString()}</span>
                     </div>
                   </div>
-                  <StatusPill status={item.status} />
+                  <div className="request-row-controls">
+                    <StatusPill status={item.status} />
+                    <IconButton
+                      title="Delete request"
+                      tone="danger"
+                      disabled={inProgressStatuses.has(item.status)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        removeRequest(item.id);
+                      }}
+                    >
+                      <IconTrash />
+                    </IconButton>
+                  </div>
                 </div>
                 <a
                   href={item.sourceUrl}
@@ -233,6 +370,7 @@ function RequestListPage() {
 
 function RequestDetailPage() {
   const { requestId } = useParams();
+  const navigate = useNavigate();
   const loader = React.useCallback(() => api(`/api/requests/${requestId}`), [requestId]);
   const { data, loading, error, reload } = usePolling(loader, true);
   const item = data?.item;
@@ -240,6 +378,22 @@ function RequestDetailPage() {
   async function trigger(path) {
     await api(path, { method: "POST" });
     await reload();
+  }
+
+  async function removeRequest() {
+    if (inProgressStatuses.has(item.status)) {
+      window.alert("This request is still running and cannot be removed yet.");
+      return;
+    }
+    if (!window.confirm("Remove this request and its stored files?")) {
+      return;
+    }
+    try {
+      await api(`/api/requests/${requestId}`, { method: "DELETE" });
+      navigate("/");
+    } catch (removeError) {
+      window.alert(removeError.message);
+    }
   }
 
   if (loading && !item) {
@@ -275,7 +429,12 @@ function RequestDetailPage() {
               {item.sourceUrl}
             </a>
           </div>
-          <StatusPill status={item.status} />
+          <div className="request-row-controls">
+            <StatusPill status={item.status} />
+            <IconButton title="Delete request" tone="danger" disabled={inProgressStatuses.has(item.status)} onClick={removeRequest}>
+              <IconTrash />
+            </IconButton>
+          </div>
         </div>
 
         <div className="metric-grid">
@@ -313,11 +472,147 @@ function RequestDetailPage() {
   );
 }
 
-function ListingCard({ item }) {
+function LocationModal({ preview, onClose }) {
+  const [coords, setCoords] = React.useState(null);
+  const [geoError, setGeoError] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+  const [userCoords, setUserCoords] = React.useState(null);
+
+  React.useEffect(() => {
+    if (!preview) {
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    let active = true;
+
+    async function lookupLocation() {
+      setLoading(true);
+      setGeoError(null);
+      setCoords(null);
+      try {
+        const payload = await api(`/api/geocode?query=${encodeURIComponent(preview.location)}`, {
+          signal: controller.signal,
+        });
+        const item = payload.item;
+        if (active && item?.lat !== undefined && item?.lat !== null && item?.lon !== undefined && item?.lon !== null) {
+          setCoords(item);
+        }
+        if (active && !item) {
+          setGeoError("Location not found on map.");
+        }
+      } catch (error) {
+        if (active && error.name !== "AbortError") {
+          setGeoError("Could not load map preview.");
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
+
+    lookupLocation();
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          if (active) {
+            setUserCoords({
+              lat: position.coords.latitude,
+              lon: position.coords.longitude,
+            });
+          }
+        },
+        () => {
+          if (active) {
+            setUserCoords(null);
+          }
+        },
+        { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 },
+      );
+    }
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [preview]);
+
+  React.useEffect(() => {
+    if (!preview) {
+      return undefined;
+    }
+
+    function onKeyDown(event) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [preview, onClose]);
+
+  if (!preview) {
+    return null;
+  }
+
+  const distanceKm =
+    coords && userCoords ? haversineKm(userCoords, coords) : null;
+  const googleMapsUrl = buildGoogleMapsUrl(preview.location);
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-panel" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <p className="eyebrow">Location preview</p>
+            <h2>{preview.location}</h2>
+            <p className="muted">{preview.title}</p>
+          </div>
+          <div className="modal-head-actions">
+            <IconButton title="Open in Google Maps" href={googleMapsUrl} tone="secondary">
+              <IconExternal />
+            </IconButton>
+            <IconButton title="Close preview" tone="secondary" onClick={onClose}>
+              <IconClose />
+            </IconButton>
+          </div>
+        </div>
+
+        <div className="modal-meta">
+          <span className="chip chip-place">
+            <span className="chip-label">Maps</span>
+            <span>{coords?.label || preview.location}</span>
+          </span>
+          <span className="chip chip-time">
+            <span className="chip-label">Distance</span>
+            <span>{distanceKm !== null ? `~${distanceKm.toFixed(1)} km from you` : "Allow location to estimate distance"}</span>
+          </span>
+        </div>
+
+        {loading ? <p className="progress-box">Loading map preview...</p> : null}
+        {geoError ? <p className="error-text">{geoError}</p> : null}
+        {coords ? (
+          <iframe
+            className="map-frame"
+            title={`Map for ${preview.location}`}
+            src={buildOsmEmbedUrl(coords.lat, coords.lon)}
+            loading="lazy"
+          />
+        ) : null}
+
+        <p className="muted modal-footnote">
+          Distance is an approximate straight-line estimate from your browser location.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function ListingCard({ item, onOpenLocation, distanceLabel }) {
   const createdAt = item.createdAt ? new Date(item.createdAt).toLocaleString() : "—";
-  const locationMapsUrl = item.location
-    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.location)}`
-    : null;
   const specs = [
     { label: "Price eval", value: item.priceEvaluation || "No price evaluation", tone: "price" },
     { label: "Engine", value: item.engineCapacity || "No engine capacity", tone: "engine" },
@@ -326,13 +621,6 @@ function ListingCard({ item }) {
     { label: "Mileage", value: item.mileage || "No mileage", tone: "mileage" },
     { label: "Fuel", value: item.fuelType || "No fuel type", tone: "drive" },
     { label: "Gearbox", value: item.transmission || "No transmission", tone: "drive" },
-    {
-      label: "Location",
-      value: item.location || "No location",
-      tone: "place",
-      mapsUrl: locationMapsUrl,
-      title: item.location ? `Open ${item.location} in Google Maps` : undefined,
-    },
     { label: "Created", value: createdAt, tone: "time" },
   ];
 
@@ -355,25 +643,27 @@ function ListingCard({ item }) {
             <strong>{item.price ? `${item.price.toLocaleString("pl-PL")} ${item.priceCurrency}` : "—"}</strong>
           </div>
           <p className="muted">{item.shortDescription || "No short description."}</p>
+          <div className="listing-place-row">
+            {item.location ? (
+              <button
+                type="button"
+                className="listing-place-button chip-interactive"
+                title={`Preview ${item.location} on map`}
+                onClick={() => onOpenLocation({ title: item.title, location: item.location })}
+              >
+                {item.location}
+              </button>
+            ) : (
+              <span className="listing-place-text">No location</span>
+            )}
+            <span className="listing-distance-text">{distanceLabel}</span>
+          </div>
           <div className="chip-row">
             {specs.map((spec) => (
-              spec.mapsUrl ? (
-                <button
-                  type="button"
-                  key={spec.label}
-                  className={`chip chip-${spec.tone} chip-link chip-interactive`}
-                  title={spec.title}
-                  onClick={() => window.open(spec.mapsUrl, "_blank", "noopener,noreferrer")}
-                >
-                  <span className="chip-label">{spec.label}</span>
-                  <span>{spec.value}</span>
-                </button>
-              ) : (
-                <span key={spec.label} className={`chip chip-${spec.tone}`}>
-                  <span className="chip-label">{spec.label}</span>
-                  <span>{spec.value}</span>
-                </span>
-              )
+              <span key={spec.label} className={`chip chip-${spec.tone}`}>
+                <span className="chip-label">{spec.label}</span>
+                <span>{spec.value}</span>
+              </span>
             ))}
           </div>
         </div>
@@ -390,6 +680,9 @@ function RequestResultsPage() {
   const [results, setResults] = React.useState(null);
   const [resultsError, setResultsError] = React.useState(null);
   const [activeCategory, setActiveCategory] = React.useState(categoryOrder[0]);
+  const [locationPreview, setLocationPreview] = React.useState(null);
+  const [geolocationState, setGeolocationState] = React.useState({ status: "idle", coords: null });
+  const [locationCache, setLocationCache] = React.useState({});
 
   React.useEffect(() => {
     let active = true;
@@ -425,6 +718,89 @@ function RequestResultsPage() {
 
   const categoryMap = results?.categories || {};
   const currentItems = categoryMap[activeCategory]?.items || [];
+
+  React.useEffect(() => {
+    if (!results || geolocationState.status !== "idle") {
+      return;
+    }
+    if (!navigator.geolocation) {
+      setGeolocationState({ status: "unavailable", coords: null });
+      return;
+    }
+
+    setGeolocationState({ status: "loading", coords: null });
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setGeolocationState({
+          status: "ready",
+          coords: {
+            lat: position.coords.latitude,
+            lon: position.coords.longitude,
+          },
+        });
+      },
+      (error) => {
+        setGeolocationState({
+          status: error?.code === 1 ? "denied" : "unavailable",
+          coords: null,
+        });
+      },
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 },
+    );
+  }, [results, geolocationState.status]);
+
+  React.useEffect(() => {
+    if (!geolocationState.coords) {
+      return;
+    }
+
+    const uniqueLocations = [...new Set(currentItems.map((item) => item.location).filter(Boolean))];
+    const now = Date.now();
+    const missingLocations = uniqueLocations.filter((location) => {
+      const entry = locationCache[location];
+      if (!entry) {
+        return true;
+      }
+      return entry.status === "error" && (entry.retryAt || 0) <= now;
+    });
+    if (missingLocations.length === 0) {
+      return;
+    }
+
+    setLocationCache((current) => ({
+      ...current,
+      ...Object.fromEntries(missingLocations.map((location) => [location, { status: "loading" }])),
+    }));
+
+    api("/api/geocode/batch", {
+      method: "POST",
+      body: JSON.stringify({ queries: missingLocations }),
+    })
+      .then((payload) => {
+        setLocationCache((current) => ({
+          ...current,
+          ...Object.fromEntries(
+            missingLocations.map((location) => {
+              const item = payload.items?.[location];
+              return [
+                location,
+                item
+                  ? { status: "ready", coords: { lat: item.lat, lon: item.lon } }
+                  : { status: "error", retryAt: Date.now() + 15000 },
+              ];
+            }),
+          ),
+        }));
+      })
+      .catch(() => {
+        setLocationCache((current) => ({
+          ...current,
+          ...Object.fromEntries(
+            missingLocations.map((location) => [location, { status: "error", retryAt: Date.now() + 15000 }]),
+          ),
+        }));
+      });
+  }, [currentItems, geolocationState.coords, locationCache]);
 
   return (
     <Shell title="Categorized results">
@@ -468,12 +844,22 @@ function RequestResultsPage() {
             <div className="listing-grid">
               {currentItems.length === 0 ? <p className="muted">No listings in this category.</p> : null}
               {currentItems.map((item) => (
-                <ListingCard key={item.id} item={item} />
+                <ListingCard
+                  key={item.id}
+                  item={item}
+                  onOpenLocation={setLocationPreview}
+                  distanceLabel={formatDistanceChip(item.location, geolocationState, locationCache[item.location])}
+                />
               ))}
             </div>
           </>
         ) : null}
       </section>
+      <LocationModal
+        key={locationPreview ? `${locationPreview.title}-${locationPreview.location}` : "no-location-preview"}
+        preview={locationPreview}
+        onClose={() => setLocationPreview(null)}
+      />
     </Shell>
   );
 }

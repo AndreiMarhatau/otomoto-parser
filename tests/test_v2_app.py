@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from otomoto_parser.v1.parser import RUN_MODE_APPEND_NEWER, RUN_MODE_FULL, RUN_MODE_RESUME
+from otomoto_parser.v2 import app as app_module
 from otomoto_parser.v2.app import create_app
 from otomoto_parser.v2.service import (
     CATEGORY_DATA_NOT_VERIFIED,
@@ -563,3 +564,52 @@ def test_empty_result_search_is_treated_as_ready(tmp_path: Path) -> None:
         results_response = client.get(f"/api/requests/{request_id}/results")
         assert results_response.status_code == 200
         assert results_response.json()["totalCount"] == 0
+
+
+def test_geocode_endpoint_returns_server_side_lookup(monkeypatch, tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+    monkeypatch.setattr(
+        app_module,
+        "geocode_location",
+        lambda query: {"lat": 52.23, "lon": 21.01, "label": f"Resolved {query}"},
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/geocode", params={"query": "Warsaw"})
+        assert response.status_code == 200
+        assert response.json()["item"]["label"] == "Resolved Warsaw"
+
+
+def test_geocode_batch_endpoint_returns_items(monkeypatch, tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+    monkeypatch.setattr(
+        app_module,
+        "geocode_location",
+        lambda query: {"lat": 52.23, "lon": 21.01, "label": f"Resolved {query}"},
+    )
+
+    with TestClient(app) as client:
+        response = client.post("/api/geocode/batch", json={"queries": ["Warsaw", "Krakow"]})
+        assert response.status_code == 200
+        assert response.json()["items"]["Warsaw"]["label"] == "Resolved Warsaw"
+
+
+def test_delete_request_endpoint_removes_request(tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        delete_response = client.delete(f"/api/requests/{request_id}")
+        assert delete_response.status_code == 204
+
+        detail_response = client.get(f"/api/requests/{request_id}")
+        assert detail_response.status_code == 404

@@ -31,6 +31,12 @@ button,
   color: #fff9f0;
 }
 
+button svg,
+.button-link svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
 button:hover,
 .button-link:hover {
   opacity: 0.92;
@@ -39,6 +45,30 @@ button:hover,
 .button-secondary {
   background: #ded4c1;
   color: #1f1c18;
+}
+
+.icon-button {
+  width: 2.6rem;
+  height: 2.6rem;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+}
+
+.icon-button-secondary {
+  background: #ded4c1;
+  color: #1f1c18;
+}
+
+.icon-button-danger {
+  background: #f4d5d5;
+  color: #8f3131;
+}
+
+.icon-button-disabled {
+  pointer-events: none;
+  opacity: 0.45;
 }
 
 .button-disabled {
@@ -154,6 +184,13 @@ textarea {
   justify-content: space-between;
   gap: 1rem;
   align-items: start;
+}
+
+.request-row-controls,
+.modal-head-actions {
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
 }
 
 .request-row-main {
@@ -317,6 +354,36 @@ textarea {
   margin: 0;
 }
 
+.listing-place-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  align-items: center;
+  margin-bottom: 0.9rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: 18px;
+  background: #f4ece0;
+}
+
+.listing-place-button,
+.listing-place-text {
+  font: inherit;
+  color: #3d3122;
+}
+
+.listing-place-button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.listing-distance-text {
+  color: #6b5741;
+  font-weight: 600;
+}
+
 .chip {
   display: inline-flex;
   gap: 0.45rem;
@@ -338,6 +405,58 @@ textarea {
   pointer-events: auto;
   position: relative;
   z-index: 3;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(24, 18, 12, 0.44);
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  z-index: 30;
+}
+
+.modal-panel {
+  width: min(900px, 100%);
+  max-height: 88vh;
+  overflow: auto;
+  background: #fffaf2;
+  border-radius: 28px;
+  padding: 1.25rem;
+  border: 1px solid #e6dac6;
+  box-shadow: 0 24px 48px rgba(48, 36, 21, 0.24);
+}
+
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 1rem;
+}
+
+.modal-head h2 {
+  margin: 0.25rem 0 0;
+}
+
+.modal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.map-frame {
+  width: 100%;
+  height: min(46vh, 420px);
+  min-height: 280px;
+  border: 0;
+  border-radius: 22px;
+  background: #ece3d6;
+}
+
+.modal-footnote {
+  margin-bottom: 0;
 }
 
 .chip-label {
@@ -387,5 +506,13 @@ textarea {
   .panel-grid,
   .listing-card-body {
     grid-template-columns: 1fr;
+  }
+
+  .modal-head {
+    flex-direction: column;
+  }
+
+  .map-frame {
+    min-height: 320px;
   }
 }
