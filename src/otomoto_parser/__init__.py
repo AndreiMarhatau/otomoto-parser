@@ -1,5 +1,5 @@
-"""Parser package."""
+"""Versioned Otomoto parser package."""
 
-from .parser import parse_pages
+from .v1.parser import parse_pages
 
 __all__ = ["parse_pages"]

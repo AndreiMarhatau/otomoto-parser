@@ -5,8 +5,10 @@ description = "GraphQL-based pagination parser for Otomoto"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "fastapi>=0.116.0",
   "openpyxl>=3.1.0",
   "pandas>=2.2.0",
+  "uvicorn>=0.35.0",
 ]
 
 [build-system]
@@ -19,14 +21,19 @@ package-dir = {"" = "src"}
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"otomoto_parser.v2" = ["frontend/dist/index.html", "frontend/dist/assets/*"]
+
 [project.optional-dependencies]
 dev = [
+  "httpx>=0.28.0",
   "pytest>=8.0.0",
 ]
 
 [project.scripts]
 otomoto-parser = "otomoto_parser.__main__:main"
 aggregation = "otomoto_parser.aggregation:main"
+parser-app = "otomoto_parser.v2.app:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

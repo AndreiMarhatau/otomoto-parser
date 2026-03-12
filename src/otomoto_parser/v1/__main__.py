@@ -1,4 +1,4 @@
-from .v1.__main__ import main
+from .parser import main
 
 
 if __name__ == "__main__":

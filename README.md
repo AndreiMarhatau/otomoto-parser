@@ -1,6 +1,9 @@
 # otomoto-parser
 
-GraphQL-based parser that paginates through results and appends items to a JSONL file.
+This repository now contains two tracks:
+
+- `v1`: the original CLI parser and Excel aggregation flow.
+- `v2`: a Python backend + React UI for request history, progress tracking, and categorized listing review.
 
 ## Setup
 
@@ -11,7 +14,19 @@ uv sync
 uv run otomoto-parser "https://www.otomoto.pl/..."
 ```
 
+To run the new app:
+
+```
+uv run parser-app
+```
+
+That starts the Python backend and serves the built React UI from the same process.
+
+The app stores request history, parser progress, categorized results, and Excel exports under `.parser-app-data/` by default.
+
 ## Usage
+
+## v1 CLI usage
 
 By default, each unique search URL gets its own output folder under `runs/`.
 
@@ -40,6 +55,15 @@ otomoto-parser "https://www.otomoto.pl/..." --output /tmp/results.jsonl --state 
 ```
 
 Each JSONL record includes the full GraphQL node/edge data so you get all available fields, including image URLs (e.g. thumbnail sizes).
+
+## v2 categorization rules
+
+Listings are categorized in this order:
+
+1. No `priceEvaluation` data: `Price evaluation out of range`
+2. `cepikVerified` is false: `Data not verified`
+3. `country_origin` is `us`: `Imported from US`
+4. Everything else: `To be checked`
 
 ## How it works (short)
 
