@@ -32,7 +32,9 @@ Build and run with Docker Compose:
 docker compose up --build
 ```
 
-The app will be available at `http://127.0.0.1:8000`.
+The app will be available on port `8000` on the Docker host.
+For example: `http://127.0.0.1:8000`.
+By default, Docker Compose publishes it on all interfaces.
 
 Persistent app data is stored in the named Docker volume `parser_app_data`, mounted inside the container at `/data`.
 
