@@ -399,31 +399,29 @@ def _extract_canonical_filter_mappings(html: str, target_names: set[str]) -> dic
     return mappings
 
 
-def _fallback_model_filters(filters: list[dict[str, str]]) -> list[list[dict[str, str]]]:
-    for item in filters:
-        if item.get("name") != "filter_enum_model":
-            continue
-        value = item.get("value", "")
-        if not value.endswith("-klasa"):
-            return []
-        base = value[: -len("-klasa")]
-        if not base:
-            return []
-        candidates = [base, f"klasa-{base}"]
-        variants: list[list[dict[str, str]]] = []
-        seen_values: set[str] = set()
-        for candidate in candidates:
-            if not candidate or candidate in seen_values:
-                continue
-            seen_values.add(candidate)
-            variant = [dict(entry) for entry in filters]
-            for variant_item in variant:
-                if variant_item.get("name") == "filter_enum_model":
-                    variant_item["value"] = candidate
-                    break
-            variants.append(variant)
-        return variants
-    return []
+def _extract_search_page_total_count(html: str) -> int | None:
+    next_data_match = re.search(
+        r'<script\b(?=[^>]*\bid=["\']__NEXT_DATA__["\'])(?=[^>]*\btype=["\']application/json["\'])[^>]*>(?P<body>.*?)</script>',
+        html,
+        re.DOTALL,
+    )
+    if not next_data_match:
+        return None
+    try:
+        next_data = json.loads(next_data_match.group("body"))
+    except json.JSONDecodeError:
+        return None
+
+    for item in _iter_embedded_json_values(next_data):
+        if "advertSearch" in item and isinstance(item["advertSearch"], dict):
+            total_count = item["advertSearch"].get("totalCount")
+            if isinstance(total_count, int):
+                return total_count
+        if "appliedFilters" in item and "totalCount" in item:
+            total_count = item.get("totalCount")
+            if isinstance(total_count, int):
+                return total_count
+    return None
 
 
 def _item_key_from_node(node: dict) -> tuple[str, str | None]:
@@ -526,7 +524,7 @@ def _resolve_canonical_make_model_filters(
     page_request_func: PageRequestFunc | None = None,
     retry_attempts: int = 1,
     backoff_base: float = 0.0,
-) -> tuple[list[dict[str, str]], bool]:
+) -> tuple[list[dict[str, str]], bool, int | None]:
     make_index: int | None = None
     model_index: int | None = None
     for index, item in enumerate(filters):
@@ -537,7 +535,7 @@ def _resolve_canonical_make_model_filters(
             model_index = index
 
     if make_index is None and model_index is None:
-        return filters, False
+        return filters, False, None
 
     page_request = page_request_func or _fetch_page_text
     try:
@@ -554,9 +552,10 @@ def _resolve_canonical_make_model_filters(
             exc.__class__.__name__,
             str(exc),
         )
-        return filters, True
+        return filters, True, None
     target_names = {"filter_enum_make", "filter_enum_model"}
     mappings = _extract_canonical_filter_mappings(html, target_names)
+    page_total_count = _extract_search_page_total_count(html)
     resolved_filters = [dict(item) for item in filters]
     matched_names: set[str] = set()
     for index in (make_index, model_index):
@@ -567,9 +566,7 @@ def _resolve_canonical_make_model_filters(
         if resolved_value:
             matched_names.add(item["name"])
             item["value"] = resolved_value
-    if model_index is not None and "filter_enum_model" not in matched_names:
-        return filters, True
-    return resolved_filters, False
+    return resolved_filters, False, page_total_count
 
 
 def parse_pages(
@@ -644,9 +641,9 @@ def parse_pages(
         headers["User-Agent"] = user_agent
     if accept_language:
         headers["accept-language"] = accept_language
-    canonical_lookup_available = page_request_func is not None or not custom_request_func
-    if canonical_lookup_available:
-        filters, _ = _resolve_canonical_make_model_filters(
+    page_total_count: int | None = None
+    if page_request_func is not None or not custom_request_func:
+        filters, _, page_total_count = _resolve_canonical_make_model_filters(
             start_url,
             filters,
             headers=headers,
@@ -691,42 +688,10 @@ def parse_pages(
         if not isinstance(edges, list):
             raise RuntimeError("GraphQL response edges is not a list")
         total_count = advert_search.get("totalCount")
-        fallback_filters_list = _fallback_model_filters(filters)
-        if fallback_filters_list and not edges and total_count == 0:
-            for fallback_filters in fallback_filters_list:
-                fallback_payload = _build_payload(fallback_filters, sort_by, current_page)
-
-                def fetch_fallback_page() -> dict:
-                    return request_func(fallback_payload, headers, request_timeout_s)
-
-                try:
-                    fallback_response = _with_retry(
-                        fetch_fallback_page,
-                        attempts=retry_attempts,
-                        base_delay=backoff_base,
-                        label="graphql fallback fetch",
-                        logger=LOGGER,
-                    )
-                    fallback_data = fallback_response.get("data") if isinstance(fallback_response, dict) else None
-                    fallback_search = fallback_data.get("advertSearch") if isinstance(fallback_data, dict) else None
-                    if not isinstance(fallback_search, dict):
-                        raise RuntimeError("GraphQL fallback response missing advertSearch data")
-                    fallback_edges = fallback_search.get("edges", [])
-                    if not isinstance(fallback_edges, list):
-                        raise RuntimeError("GraphQL fallback response edges is not a list")
-                    fallback_total_count = fallback_search.get("totalCount")
-                    if fallback_edges or fallback_total_count:
-                        filters = fallback_filters
-                        advert_search = fallback_search
-                        edges = fallback_edges
-                        total_count = fallback_total_count
-                        break
-                except (HTTPError, URLError, TimeoutError, RuntimeError) as exc:
-                    LOGGER.warning(
-                        "Could not complete canonical model fallback query (%s: %s). Continuing with the next fallback candidate.",
-                        exc.__class__.__name__,
-                        str(exc),
-                    )
+        if current_page == 1 and not edges and total_count == 0 and isinstance(page_total_count, int) and page_total_count > 0:
+            raise RuntimeError(
+                "GraphQL returned 0 listings even though the search page reports results. Canonical filter resolution failed."
+            )
 
         page_url = _url_with_page(normalized_start_url, current_page)
         LOGGER.info("Fetched page %s with %s edges.", current_page, len(edges))

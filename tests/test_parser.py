@@ -3,7 +3,7 @@ from pathlib import Path
 import json
 
 from otomoto_parser.parser import RUN_MODE_APPEND_NEWER, RUN_MODE_FULL, parse_pages
-from otomoto_parser.v1.parser import _fallback_model_filters, _resolve_canonical_make_model_filters
+from otomoto_parser.v1.parser import _resolve_canonical_make_model_filters
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -262,7 +262,7 @@ def test_resolve_canonical_model_filter_value() -> None:
             ']}}"}}}}</script>'
         )
 
-    resolved, fetch_failed = _resolve_canonical_make_model_filters(
+    resolved, fetch_failed, total_count = _resolve_canonical_make_model_filters(
         "https://www.otomoto.pl/osobowe/mercedes-benz/cla-klasa",
         filters,
         headers={},
@@ -271,16 +271,6 @@ def test_resolve_canonical_model_filter_value() -> None:
     )
 
     assert fetch_failed is False
+    assert total_count is None
     assert resolved[1]["value"] == "mercedes-benz"
     assert resolved[2]["value"] == "cla"
-
-
-def test_fallback_model_filters_are_last_resort_candidates() -> None:
-    filters = [
-        {"name": "filter_enum_make", "value": "mercedes-benz"},
-        {"name": "filter_enum_model", "value": "cla-klasa"},
-    ]
-
-    fallbacks = _fallback_model_filters(filters)
-
-    assert [fallback[1]["value"] for fallback in fallbacks] == ["cla", "klasa-cla"]
