@@ -459,6 +459,12 @@ function LocationModal({ preview, onClose }) {
           </span>
         </div>
 
+        <div className="modal-actions">
+          <a href={googleMapsUrl} target="_blank" rel="noreferrer" className="button-link">
+            Open in Google Maps
+          </a>
+        </div>
+
         {loading ? <p className="progress-box">Loading map preview...</p> : null}
         {geoError ? <p className="error-text">{geoError}</p> : null}
         {coords ? (
@@ -469,12 +475,6 @@ function LocationModal({ preview, onClose }) {
             loading="lazy"
           />
         ) : null}
-
-        <div className="modal-actions">
-          <a href={googleMapsUrl} target="_blank" rel="noreferrer" className="button-link">
-            Open in Google Maps
-          </a>
-        </div>
 
         <p className="muted modal-footnote">
           Distance is an approximate straight-line estimate from your browser location.

@@ -385,7 +385,8 @@ textarea {
 
 .map-frame {
   width: 100%;
-  min-height: 420px;
+  height: min(46vh, 420px);
+  min-height: 280px;
   border: 0;
   border-radius: 22px;
   background: #ece3d6;
