@@ -255,8 +255,11 @@ def test_resolve_canonical_model_filter_value() -> None:
     def page_request(url: str, headers: dict[str, str], timeout_s: float) -> str:
         assert "mercedes-benz/cla-klasa" in url
         return (
-            '{"name":"filter_enum_make","value":"mercedes-benz","canonical":"mercedes-benz"}'
-            '{"name":"filter_enum_model","value":"cla","canonical":"cla-klasa"}'
+            '<script id="__NEXT_DATA__" type="application/json">'
+            '{"props":{"pageProps":{"cache":{"listing":"{\\"advertSearch\\":{\\"appliedFilters\\":['
+            '{\\"name\\":\\"filter_enum_make\\",\\"value\\":\\"mercedes-benz\\",\\"canonical\\":\\"mercedes-benz\\"},'
+            '{\\"name\\":\\"filter_enum_model\\",\\"value\\":\\"cla\\",\\"canonical\\":\\"cla-klasa\\"}'
+            ']}}"}}}}</script>'
         )
 
     resolved, fetch_failed = _resolve_canonical_make_model_filters(
@@ -272,7 +275,7 @@ def test_resolve_canonical_model_filter_value() -> None:
     assert resolved[2]["value"] == "cla"
 
 
-def test_fallback_model_filters_strips_klasa_suffix() -> None:
+def test_fallback_model_filters_are_last_resort_candidates() -> None:
     filters = [
         {"name": "filter_enum_make", "value": "mercedes-benz"},
         {"name": "filter_enum_model", "value": "cla-klasa"},

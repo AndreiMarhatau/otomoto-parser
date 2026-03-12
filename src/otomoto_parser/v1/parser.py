@@ -355,6 +355,50 @@ def _post_graphql(payload: dict, headers: dict[str, str], timeout_s: float) -> d
     return parsed
 
 
+def _iter_embedded_json_values(value: Any) -> Iterable[dict[str, Any]]:
+    if isinstance(value, dict):
+        yield value
+        for nested in value.values():
+            yield from _iter_embedded_json_values(nested)
+        return
+    if isinstance(value, list):
+        for item in value:
+            yield from _iter_embedded_json_values(item)
+        return
+    if isinstance(value, str) and value[:1] in {"{", "["}:
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return
+        yield from _iter_embedded_json_values(parsed)
+
+
+def _extract_canonical_filter_mappings(html: str, target_names: set[str]) -> dict[tuple[str, str], str]:
+    next_data_match = re.search(
+        r'<script\b(?=[^>]*\bid=["\']__NEXT_DATA__["\'])(?=[^>]*\btype=["\']application/json["\'])[^>]*>(?P<body>.*?)</script>',
+        html,
+        re.DOTALL,
+    )
+    if not next_data_match:
+        return {}
+    try:
+        next_data = json.loads(next_data_match.group("body"))
+    except json.JSONDecodeError:
+        return {}
+
+    mappings: dict[tuple[str, str], str] = {}
+    for item in _iter_embedded_json_values(next_data):
+        name = item.get("name")
+        value = item.get("value")
+        canonical = item.get("canonical")
+        if name not in target_names:
+            continue
+        if not isinstance(value, str) or not isinstance(canonical, str):
+            continue
+        mappings[(name, canonical)] = value
+    return mappings
+
+
 def _fallback_model_filters(filters: list[dict[str, str]]) -> list[list[dict[str, str]]]:
     for item in filters:
         if item.get("name") != "filter_enum_model":
@@ -511,28 +555,20 @@ def _resolve_canonical_make_model_filters(
             str(exc),
         )
         return filters, True
-    html = html.replace('\\"', '"')
+    target_names = {"filter_enum_make", "filter_enum_model"}
+    mappings = _extract_canonical_filter_mappings(html, target_names)
     resolved_filters = [dict(item) for item in filters]
-    required_names: set[str] = set()
     matched_names: set[str] = set()
     for index in (make_index, model_index):
         if index is None:
             continue
         item = resolved_filters[index]
-        required_names.add(item["name"])
-        pattern = re.compile(
-            rf'"name":"{re.escape(item["name"])}","value":"(?P<value>[^"]+)","canonical":"{re.escape(item["value"])}"'
-        )
-        match = pattern.search(html)
-        if not match:
-            continue
-        matched_names.add(item["name"])
-        resolved_value = match.group("value")
+        resolved_value = mappings.get((item["name"], item["value"]))
         if resolved_value:
+            matched_names.add(item["name"])
             item["value"] = resolved_value
-
-    if required_names and matched_names != required_names:
-        return filters, False
+    if model_index is not None and "filter_enum_model" not in matched_names:
+        return filters, True
     return resolved_filters, False
 
 
@@ -608,7 +644,8 @@ def parse_pages(
         headers["User-Agent"] = user_agent
     if accept_language:
         headers["accept-language"] = accept_language
-    if page_request_func is not None or not custom_request_func:
+    canonical_lookup_available = page_request_func is not None or not custom_request_func
+    if canonical_lookup_available:
         filters, _ = _resolve_canonical_make_model_filters(
             start_url,
             filters,
@@ -654,9 +691,9 @@ def parse_pages(
         if not isinstance(edges, list):
             raise RuntimeError("GraphQL response edges is not a list")
         total_count = advert_search.get("totalCount")
-        has_model_filter = any(item.get("name") == "filter_enum_model" for item in filters)
-        if has_model_filter and not edges and total_count == 0:
-            for fallback_filters in _fallback_model_filters(filters):
+        fallback_filters_list = _fallback_model_filters(filters)
+        if fallback_filters_list and not edges and total_count == 0:
+            for fallback_filters in fallback_filters_list:
                 fallback_payload = _build_payload(fallback_filters, sort_by, current_page)
 
                 def fetch_fallback_page() -> dict:
