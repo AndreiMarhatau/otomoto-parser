@@ -315,6 +315,9 @@ function RequestDetailPage() {
 
 function ListingCard({ item }) {
   const createdAt = item.createdAt ? new Date(item.createdAt).toLocaleString() : "—";
+  const locationMapsUrl = item.location
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.location)}`
+    : null;
   const specs = [
     { label: "Price eval", value: item.priceEvaluation || "No price evaluation", tone: "price" },
     { label: "Engine", value: item.engineCapacity || "No engine capacity", tone: "engine" },
@@ -323,31 +326,59 @@ function ListingCard({ item }) {
     { label: "Mileage", value: item.mileage || "No mileage", tone: "mileage" },
     { label: "Fuel", value: item.fuelType || "No fuel type", tone: "drive" },
     { label: "Gearbox", value: item.transmission || "No transmission", tone: "drive" },
-    { label: "Location", value: item.location || "No location", tone: "place" },
+    {
+      label: "Location",
+      value: item.location || "No location",
+      tone: "place",
+      mapsUrl: locationMapsUrl,
+      title: item.location ? `Open ${item.location} in Google Maps` : undefined,
+    },
     { label: "Created", value: createdAt, tone: "time" },
   ];
 
   return (
-    <a href={item.url} target="_blank" rel="noreferrer" className="listing-card">
-      <div className="listing-image-wrap">
-        {item.imageUrl ? <img src={item.imageUrl} alt={item.title} className="listing-image" /> : <div className="listing-image placeholder" />}
-      </div>
-      <div className="listing-content">
-        <div className="listing-topline">
-          <h3>{item.title}</h3>
-          <strong>{item.price ? `${item.price.toLocaleString("pl-PL")} ${item.priceCurrency}` : "—"}</strong>
+    <article className="listing-card">
+      <a
+        href={item.url}
+        target="_blank"
+        rel="noreferrer"
+        className="listing-card-anchor"
+        aria-label={`Open listing: ${item.title || "listing"}`}
+      />
+      <div className="listing-card-body">
+        <div className="listing-image-wrap">
+          {item.imageUrl ? <img src={item.imageUrl} alt={item.title} className="listing-image" /> : <div className="listing-image placeholder" />}
         </div>
-        <p className="muted">{item.shortDescription || "No short description."}</p>
-        <div className="chip-row">
-          {specs.map((spec) => (
-            <span key={spec.label} className={`chip chip-${spec.tone}`}>
-              <span className="chip-label">{spec.label}</span>
-              <span>{spec.value}</span>
-            </span>
-          ))}
+        <div className="listing-content">
+          <div className="listing-topline">
+            <h3>{item.title}</h3>
+            <strong>{item.price ? `${item.price.toLocaleString("pl-PL")} ${item.priceCurrency}` : "—"}</strong>
+          </div>
+          <p className="muted">{item.shortDescription || "No short description."}</p>
+          <div className="chip-row">
+            {specs.map((spec) => (
+              spec.mapsUrl ? (
+                <button
+                  type="button"
+                  key={spec.label}
+                  className={`chip chip-${spec.tone} chip-link chip-interactive`}
+                  title={spec.title}
+                  onClick={() => window.open(spec.mapsUrl, "_blank", "noopener,noreferrer")}
+                >
+                  <span className="chip-label">{spec.label}</span>
+                  <span>{spec.value}</span>
+                </button>
+              ) : (
+                <span key={spec.label} className={`chip chip-${spec.tone}`}>
+                  <span className="chip-label">{spec.label}</span>
+                  <span>{spec.value}</span>
+                </span>
+              )
+            ))}
+          </div>
         </div>
       </div>
-    </a>
+    </article>
   );
 }
 

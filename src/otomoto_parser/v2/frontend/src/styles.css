@@ -262,15 +262,29 @@ textarea {
 }
 
 .listing-card {
-  display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  gap: 1rem;
+  position: relative;
+  display: block;
   padding: 1rem;
   border-radius: 24px;
   background: #fffdf8;
   border: 1px solid #eadfcf;
-  text-decoration: none;
   transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.listing-card-body {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 1rem;
+  position: relative;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.listing-card-anchor {
+  position: absolute;
+  inset: 0;
+  border-radius: 24px;
+  z-index: 1;
 }
 
 .listing-card:hover {
@@ -310,6 +324,20 @@ textarea {
   border-radius: 999px;
   padding: 0.45rem 0.75rem;
   font-size: 0.92rem;
+}
+
+.chip-link {
+  text-decoration: none;
+}
+
+.chip-link:hover {
+  filter: brightness(0.97);
+}
+
+.chip-interactive {
+  pointer-events: auto;
+  position: relative;
+  z-index: 3;
 }
 
 .chip-label {
@@ -357,7 +385,7 @@ textarea {
 
 @media (max-width: 920px) {
   .panel-grid,
-  .listing-card {
+  .listing-card-body {
     grid-template-columns: 1fr;
   }
 }
