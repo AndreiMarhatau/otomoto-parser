@@ -370,6 +370,12 @@ textarea {
   box-shadow: 0 12px 24px rgba(36, 24, 12, 0.16);
 }
 
+.listing-report-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  box-shadow: none;
+}
+
 .listing-report-button svg {
   width: 1rem;
   height: 1rem;

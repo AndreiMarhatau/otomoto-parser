@@ -834,6 +834,7 @@ function VehicleReportModal({ state, onClose, onRegenerate }) {
 
 function ListingCard({ item, onOpenLocation, onOpenReport, distanceLabel }) {
   const createdAt = item.createdAt ? new Date(item.createdAt).toLocaleString() : "—";
+  const reportDisabled = item.dataVerified !== true && item.vehicleReport?.cached !== true;
   const specs = [
     { label: "Price eval", value: item.priceEvaluation || "No price evaluation", tone: "price" },
     { label: "Engine", value: item.engineCapacity || "No engine capacity", tone: "engine" },
@@ -868,9 +869,14 @@ function ListingCard({ item, onOpenLocation, onOpenReport, distanceLabel }) {
             <button
               type="button"
               className="listing-report-button chip-interactive"
+              disabled={reportDisabled}
+              title={reportDisabled ? "Vehicle report is available only for verified-data listings." : "Open vehicle report"}
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
+                if (reportDisabled) {
+                  return;
+                }
                 onOpenReport(item);
               }}
             >
