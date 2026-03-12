@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 
 from otomoto_parser.parser import RUN_MODE_APPEND_NEWER, RUN_MODE_FULL, parse_pages
+from otomoto_parser.v1.parser import _resolve_canonical_make_model_filters
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -33,6 +34,13 @@ def _make_request(fixtures: dict[int, dict], captured_headers: list | None = Non
     return request
 
 
+def _make_page_request(html: str = ""):
+    def request(url: str, headers: dict[str, str], timeout_s: float) -> str:
+        return html
+
+    return request
+
+
 def test_parse_two_pages(tmp_path: Path) -> None:
     output_path = tmp_path / "results.jsonl"
     state_path = tmp_path / "state.json"
@@ -51,6 +59,7 @@ def test_parse_two_pages(tmp_path: Path) -> None:
         delay_min=0.0,
         delay_max=0.0,
         request_func=_make_request(fixtures),
+        page_request_func=_make_page_request(),
     )
 
     lines = output_path.read_text(encoding="utf-8").splitlines()
@@ -79,6 +88,7 @@ def test_resume_from_state(tmp_path: Path) -> None:
         delay_min=0.0,
         delay_max=0.0,
         request_func=_make_request(fixtures),
+        page_request_func=_make_page_request(),
     )
 
     lines_after_first = output_path.read_text(encoding="utf-8").splitlines()
@@ -95,6 +105,7 @@ def test_resume_from_state(tmp_path: Path) -> None:
         delay_min=0.0,
         delay_max=0.0,
         request_func=_make_request(fixtures),
+        page_request_func=_make_page_request(),
     )
 
     lines_after_second = output_path.read_text(encoding="utf-8").splitlines()
@@ -123,6 +134,7 @@ def test_custom_user_agent(tmp_path: Path) -> None:
         user_agent=custom_agent,
         accept_language=None,
         request_func=_make_request(fixtures, captured_headers),
+        page_request_func=_make_page_request(),
     )
 
     assert captured_headers
@@ -145,6 +157,7 @@ def test_append_newer_stops_on_duplicate(tmp_path: Path) -> None:
         delay_min=0.0,
         delay_max=0.0,
         request_func=_make_request(fixtures),
+        page_request_func=_make_page_request(),
     )
 
     lines_after_seed = output_path.read_text(encoding="utf-8").splitlines()
@@ -160,6 +173,7 @@ def test_append_newer_stops_on_duplicate(tmp_path: Path) -> None:
         delay_min=0.0,
         delay_max=0.0,
         request_func=_make_request(fixtures),
+        page_request_func=_make_page_request(),
     )
 
     lines_after_append = output_path.read_text(encoding="utf-8").splitlines()
@@ -186,6 +200,7 @@ def test_full_overwrites_existing_output(tmp_path: Path) -> None:
         delay_min=0.0,
         delay_max=0.0,
         request_func=_make_request(fixtures),
+        page_request_func=_make_page_request(),
     )
     assert len(output_path.read_text(encoding="utf-8").splitlines()) == 2
 
@@ -199,6 +214,7 @@ def test_full_overwrites_existing_output(tmp_path: Path) -> None:
         delay_min=0.0,
         delay_max=0.0,
         request_func=_make_request(fixtures),
+        page_request_func=_make_page_request(),
     )
 
     lines = output_path.read_text(encoding="utf-8").splitlines()
@@ -222,7 +238,39 @@ def test_start_page_from_url(tmp_path: Path) -> None:
         delay_min=0.0,
         delay_max=0.0,
         request_func=_make_request(fixtures),
+        page_request_func=_make_page_request(),
     )
 
     lines = output_path.read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1
+
+
+def test_resolve_canonical_model_filter_value() -> None:
+    filters = [
+        {"name": "category_id", "value": "29"},
+        {"name": "filter_enum_make", "value": "mercedes-benz"},
+        {"name": "filter_enum_model", "value": "cla-klasa"},
+    ]
+
+    def page_request(url: str, headers: dict[str, str], timeout_s: float) -> str:
+        assert "mercedes-benz/cla-klasa" in url
+        return (
+            '<script id="__NEXT_DATA__" type="application/json">'
+            '{"props":{"pageProps":{"cache":{"listing":"{\\"advertSearch\\":{\\"appliedFilters\\":['
+            '{\\"name\\":\\"filter_enum_make\\",\\"value\\":\\"mercedes-benz\\",\\"canonical\\":\\"mercedes-benz\\"},'
+            '{\\"name\\":\\"filter_enum_model\\",\\"value\\":\\"cla\\",\\"canonical\\":\\"cla-klasa\\"}'
+            ']}}"}}}}</script>'
+        )
+
+    resolved, fetch_failed, total_count = _resolve_canonical_make_model_filters(
+        "https://www.otomoto.pl/osobowe/mercedes-benz/cla-klasa",
+        filters,
+        headers={},
+        timeout_s=1.0,
+        page_request_func=page_request,
+    )
+
+    assert fetch_failed is False
+    assert total_count is None
+    assert resolved[1]["value"] == "mercedes-benz"
+    assert resolved[2]["value"] == "cla"

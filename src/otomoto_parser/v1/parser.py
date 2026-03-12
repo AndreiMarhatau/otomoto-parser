@@ -225,12 +225,13 @@ def _segment_body_types(segment: str) -> list[str]:
     return body_types
 
 
-def _parse_filters_from_url(url: str) -> tuple[list[dict[str, str]], str, int]:
+def _parse_filters_from_url(url: str) -> tuple[list[dict[str, str]], str, int, set[str]]:
     parsed = urlparse(url)
     query_params = parse_qsl(parsed.query, keep_blank_values=True)
     filters: list[dict[str, str]] = []
     sort_by = DEFAULT_SORT_BY
     start_page = 1
+    inferred_names: set[str] = set()
 
     seen_pairs: set[tuple[str, str]] = set()
     seen_names: set[str] = set()
@@ -304,10 +305,12 @@ def _parse_filters_from_url(url: str) -> tuple[list[dict[str, str]], str, int]:
     if remaining:
         if "filter_enum_make" not in seen_names:
             add_filter("filter_enum_make", remaining[0])
+            inferred_names.add("filter_enum_make")
         if len(remaining) > 1 and "filter_enum_model" not in seen_names:
             add_filter("filter_enum_model", remaining[1])
+            inferred_names.add("filter_enum_model")
 
-    return filters, sort_by, start_page
+    return filters, sort_by, start_page, inferred_names
 
 
 def _build_payload(filters: list[dict[str, str]], sort_by: str, page: int) -> dict:
@@ -350,6 +353,75 @@ def _post_graphql(payload: dict, headers: dict[str, str], timeout_s: float) -> d
     if "errors" in parsed:
         raise RuntimeError(f"GraphQL errors: {parsed['errors']}")
     return parsed
+
+
+def _iter_embedded_json_values(value: Any) -> Iterable[dict[str, Any]]:
+    if isinstance(value, dict):
+        yield value
+        for nested in value.values():
+            yield from _iter_embedded_json_values(nested)
+        return
+    if isinstance(value, list):
+        for item in value:
+            yield from _iter_embedded_json_values(item)
+        return
+    if isinstance(value, str) and value[:1] in {"{", "["}:
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return
+        yield from _iter_embedded_json_values(parsed)
+
+
+def _extract_canonical_filter_mappings(html: str, target_names: set[str]) -> dict[tuple[str, str], str]:
+    next_data_match = re.search(
+        r'<script\b(?=[^>]*\bid=["\']__NEXT_DATA__["\'])(?=[^>]*\btype=["\']application/json["\'])[^>]*>(?P<body>.*?)</script>',
+        html,
+        re.DOTALL,
+    )
+    if not next_data_match:
+        return {}
+    try:
+        next_data = json.loads(next_data_match.group("body"))
+    except json.JSONDecodeError:
+        return {}
+
+    mappings: dict[tuple[str, str], str] = {}
+    for item in _iter_embedded_json_values(next_data):
+        name = item.get("name")
+        value = item.get("value")
+        canonical = item.get("canonical")
+        if name not in target_names:
+            continue
+        if not isinstance(value, str) or not isinstance(canonical, str):
+            continue
+        mappings[(name, canonical)] = value
+    return mappings
+
+
+def _extract_search_page_total_count(html: str) -> int | None:
+    next_data_match = re.search(
+        r'<script\b(?=[^>]*\bid=["\']__NEXT_DATA__["\'])(?=[^>]*\btype=["\']application/json["\'])[^>]*>(?P<body>.*?)</script>',
+        html,
+        re.DOTALL,
+    )
+    if not next_data_match:
+        return None
+    try:
+        next_data = json.loads(next_data_match.group("body"))
+    except json.JSONDecodeError:
+        return None
+
+    for item in _iter_embedded_json_values(next_data):
+        if "advertSearch" in item and isinstance(item["advertSearch"], dict):
+            total_count = item["advertSearch"].get("totalCount")
+            if isinstance(total_count, int):
+                return total_count
+        if "appliedFilters" in item and "totalCount" in item:
+            total_count = item.get("totalCount")
+            if isinstance(total_count, int):
+                return total_count
+    return None
 
 
 def _item_key_from_node(node: dict) -> tuple[str, str | None]:
@@ -428,12 +500,73 @@ def _append_results(
 
 
 RequestFunc = Callable[[dict, dict[str, str], float], dict]
+PageRequestFunc = Callable[[str, dict[str, str], float], str]
 
 
 def _emit_progress(callback: ProgressCallback | None, event: str, **payload: Any) -> None:
     if callback is None:
         return
     callback({"event": event, **payload})
+
+
+def _fetch_page_text(url: str, headers: dict[str, str], timeout_s: float) -> str:
+    request = Request(url, headers=headers, method="GET")
+    with urlopen(request, timeout=timeout_s) as response:
+        return response.read().decode("utf-8")
+
+
+def _resolve_canonical_make_model_filters(
+    url: str,
+    filters: list[dict[str, str]],
+    *,
+    headers: dict[str, str],
+    timeout_s: float,
+    page_request_func: PageRequestFunc | None = None,
+    retry_attempts: int = 1,
+    backoff_base: float = 0.0,
+) -> tuple[list[dict[str, str]], bool, int | None]:
+    make_index: int | None = None
+    model_index: int | None = None
+    for index, item in enumerate(filters):
+        name = item.get("name")
+        if name == "filter_enum_make" and make_index is None:
+            make_index = index
+        elif name == "filter_enum_model" and model_index is None:
+            model_index = index
+
+    if make_index is None and model_index is None:
+        return filters, False, None
+
+    page_request = page_request_func or _fetch_page_text
+    try:
+        html = _with_retry(
+            lambda: page_request(_url_with_page(_normalize_start_url(url), 1), headers, timeout_s),
+            attempts=max(1, retry_attempts),
+            base_delay=backoff_base,
+            label="search page fetch",
+            logger=LOGGER,
+        )
+    except (HTTPError, URLError, TimeoutError, UnicodeDecodeError, RuntimeError) as exc:
+        LOGGER.warning(
+            "Could not resolve canonical make/model filters from page HTML (%s: %s). Continuing with URL values.",
+            exc.__class__.__name__,
+            str(exc),
+        )
+        return filters, True, None
+    target_names = {"filter_enum_make", "filter_enum_model"}
+    mappings = _extract_canonical_filter_mappings(html, target_names)
+    page_total_count = _extract_search_page_total_count(html)
+    resolved_filters = [dict(item) for item in filters]
+    matched_names: set[str] = set()
+    for index in (make_index, model_index):
+        if index is None:
+            continue
+        item = resolved_filters[index]
+        resolved_value = mappings.get((item["name"], item["value"]))
+        if resolved_value:
+            matched_names.add(item["name"])
+            item["value"] = resolved_value
+    return resolved_filters, False, page_total_count
 
 
 def parse_pages(
@@ -451,6 +584,7 @@ def parse_pages(
     user_agent: str | None = DEFAULT_USER_AGENT,
     accept_language: str | None = DEFAULT_ACCEPT_LANGUAGE,
     request_func: RequestFunc | None = None,
+    page_request_func: PageRequestFunc | None = None,
     progress_callback: ProgressCallback | None = None,
 ) -> ParserState:
     if run_mode not in RUN_MODES:
@@ -467,7 +601,7 @@ def parse_pages(
         LOGGER.info("Existing state URL does not match the requested URL. Starting fresh.")
         state = None
 
-    filters, sort_by, start_page = _parse_filters_from_url(start_url)
+    filters, sort_by, start_page, _ = _parse_filters_from_url(start_url)
     if state and not state.has_more:
         LOGGER.info("State indicates no more pages to fetch. Exiting.")
         _emit_progress(progress_callback, "complete", state=asdict(state), next_url=state.next_url)
@@ -496,6 +630,7 @@ def parse_pages(
         if seen_item_keys:
             LOGGER.info("Loaded %s existing items for deduplication.", len(seen_item_keys))
 
+    custom_request_func = request_func is not None
     request_func = request_func or _post_graphql
     headers = {
         "accept": "application/graphql-response+json, application/graphql+json, application/json, text/event-stream, multipart/mixed",
@@ -506,6 +641,17 @@ def parse_pages(
         headers["User-Agent"] = user_agent
     if accept_language:
         headers["accept-language"] = accept_language
+    page_total_count: int | None = None
+    if page_request_func is not None or not custom_request_func:
+        filters, _, page_total_count = _resolve_canonical_make_model_filters(
+            start_url,
+            filters,
+            headers=headers,
+            timeout_s=request_timeout_s,
+            page_request_func=page_request_func,
+            retry_attempts=retry_attempts,
+            backoff_base=backoff_base,
+        )
 
     has_more = True
     next_page = current_page
@@ -541,6 +687,11 @@ def parse_pages(
         edges = advert_search.get("edges", [])
         if not isinstance(edges, list):
             raise RuntimeError("GraphQL response edges is not a list")
+        total_count = advert_search.get("totalCount")
+        if current_page == 1 and not edges and total_count == 0 and isinstance(page_total_count, int) and page_total_count > 0:
+            raise RuntimeError(
+                "GraphQL returned 0 listings even though the search page reports results. Canonical filter resolution failed."
+            )
 
         page_url = _url_with_page(normalized_start_url, current_page)
         LOGGER.info("Fetched page %s with %s edges.", current_page, len(edges))
@@ -585,7 +736,6 @@ def parse_pages(
             has_more = False
             break
 
-        total_count = advert_search.get("totalCount")
         page_info = advert_search.get("pageInfo") if isinstance(advert_search.get("pageInfo"), dict) else {}
         page_size = page_info.get("pageSize") if isinstance(page_info.get("pageSize"), int) else len(edges)
         current_offset = page_info.get("currentOffset") if isinstance(page_info.get("currentOffset"), int) else (current_page - 1) * page_size
