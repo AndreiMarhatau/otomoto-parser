@@ -354,6 +354,36 @@ textarea {
   margin: 0;
 }
 
+.listing-place-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  align-items: center;
+  margin-bottom: 0.9rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: 18px;
+  background: #f4ece0;
+}
+
+.listing-place-button,
+.listing-place-text {
+  font: inherit;
+  color: #3d3122;
+}
+
+.listing-place-button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.listing-distance-text {
+  color: #6b5741;
+  font-weight: 600;
+}
+
 .chip {
   display: inline-flex;
   gap: 0.45rem;

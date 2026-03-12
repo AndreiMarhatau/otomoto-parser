@@ -63,7 +63,7 @@ function formatDistanceChip(itemLocation, geolocationState, locationEntry) {
     return "Lookup failed";
   }
   const distanceKm = haversineKm(geolocationState.coords, locationEntry.coords);
-  return `~${distanceKm.toFixed(1)} km`;
+  return `~${distanceKm.toFixed(1)} km from you`;
 }
 
 function IconRefresh() {
@@ -615,20 +615,12 @@ function ListingCard({ item, onOpenLocation, distanceLabel }) {
   const createdAt = item.createdAt ? new Date(item.createdAt).toLocaleString() : "—";
   const specs = [
     { label: "Price eval", value: item.priceEvaluation || "No price evaluation", tone: "price" },
-    { label: "Distance", value: distanceLabel, tone: "time" },
     { label: "Engine", value: item.engineCapacity || "No engine capacity", tone: "engine" },
     { label: "Power", value: item.enginePower || "No power", tone: "engine" },
     { label: "Year", value: item.year || "No year", tone: "year" },
     { label: "Mileage", value: item.mileage || "No mileage", tone: "mileage" },
     { label: "Fuel", value: item.fuelType || "No fuel type", tone: "drive" },
     { label: "Gearbox", value: item.transmission || "No transmission", tone: "drive" },
-    {
-      label: "Location",
-      value: item.location || "No location",
-      tone: "place",
-      onClick: item.location ? () => onOpenLocation({ title: item.title, location: item.location }) : null,
-      title: item.location ? `Preview ${item.location} on map` : undefined,
-    },
     { label: "Created", value: createdAt, tone: "time" },
   ];
 
@@ -651,25 +643,27 @@ function ListingCard({ item, onOpenLocation, distanceLabel }) {
             <strong>{item.price ? `${item.price.toLocaleString("pl-PL")} ${item.priceCurrency}` : "—"}</strong>
           </div>
           <p className="muted">{item.shortDescription || "No short description."}</p>
+          <div className="listing-place-row">
+            {item.location ? (
+              <button
+                type="button"
+                className="listing-place-button chip-interactive"
+                title={`Preview ${item.location} on map`}
+                onClick={() => onOpenLocation({ title: item.title, location: item.location })}
+              >
+                {item.location}
+              </button>
+            ) : (
+              <span className="listing-place-text">No location</span>
+            )}
+            <span className="listing-distance-text">{distanceLabel}</span>
+          </div>
           <div className="chip-row">
             {specs.map((spec) => (
-              spec.onClick ? (
-                <button
-                  type="button"
-                  key={spec.label}
-                  className={`chip chip-${spec.tone} chip-link chip-interactive`}
-                  title={spec.title}
-                  onClick={spec.onClick}
-                >
-                  <span className="chip-label">{spec.label}</span>
-                  <span>{spec.value}</span>
-                </button>
-              ) : (
-                <span key={spec.label} className={`chip chip-${spec.tone}`}>
-                  <span className="chip-label">{spec.label}</span>
-                  <span>{spec.value}</span>
-                </span>
-              )
+              <span key={spec.label} className={`chip chip-${spec.tone}`}>
+                <span className="chip-label">{spec.label}</span>
+                <span>{spec.value}</span>
+              </span>
             ))}
           </div>
         </div>
