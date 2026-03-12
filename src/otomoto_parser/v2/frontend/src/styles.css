@@ -31,6 +31,12 @@ button,
   color: #fff9f0;
 }
 
+button svg,
+.button-link svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
 button:hover,
 .button-link:hover {
   opacity: 0.92;
@@ -39,6 +45,30 @@ button:hover,
 .button-secondary {
   background: #ded4c1;
   color: #1f1c18;
+}
+
+.icon-button {
+  width: 2.6rem;
+  height: 2.6rem;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+}
+
+.icon-button-secondary {
+  background: #ded4c1;
+  color: #1f1c18;
+}
+
+.icon-button-danger {
+  background: #f4d5d5;
+  color: #8f3131;
+}
+
+.icon-button-disabled {
+  pointer-events: none;
+  opacity: 0.45;
 }
 
 .button-disabled {
@@ -154,6 +184,13 @@ textarea {
   justify-content: space-between;
   gap: 1rem;
   align-items: start;
+}
+
+.request-row-controls,
+.modal-head-actions {
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
 }
 
 .request-row-main {
@@ -377,10 +414,6 @@ textarea {
   flex-wrap: wrap;
   gap: 0.75rem;
   margin: 1rem 0;
-}
-
-.modal-actions {
-  margin-top: 1rem;
 }
 
 .map-frame {

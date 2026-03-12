@@ -9,7 +9,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -95,6 +95,16 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="Request not found.") from exc
         return {"item": request}
+
+    @app.delete("/api/requests/{request_id}", status_code=204)
+    def delete_request_endpoint(request_id: str) -> Response:
+        try:
+            _service().delete_request(request_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Request not found.") from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return Response(status_code=204)
 
     @app.post("/api/requests/{request_id}/resume")
     def resume_request_endpoint(request_id: str) -> dict[str, Any]:

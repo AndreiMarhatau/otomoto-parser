@@ -10,6 +10,8 @@ const categoryOrder = [
   "To be checked",
 ];
 
+const inProgressStatuses = new Set(["pending", "running", "categorizing"]);
+
 function haversineKm(a, b) {
   const toRadians = (value) => (value * Math.PI) / 180;
   const earthRadiusKm = 6371;
@@ -39,6 +41,57 @@ function buildOsmEmbedUrl(lat, lon) {
 
 function buildGoogleMapsUrl(location) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`;
+}
+
+function IconRefresh() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M20 12a8 8 0 1 1-2.34-5.66" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M20 4v6h-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function IconClose() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconTrash() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 7h16M9 7V4h6v3M8 7l1 12h6l1-12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function IconExternal() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M14 5h5v5M19 5l-8 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M19 14v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function IconButton({ title, onClick, href, disabled = false, tone = "default", children }) {
+  const className = `icon-button icon-button-${tone}${disabled ? " icon-button-disabled" : ""}`;
+  if (href) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer" className={className} title={title} aria-label={title}>
+        {children}
+      </a>
+    );
+  }
+
+  return (
+    <button type="button" className={className} title={title} aria-label={title} onClick={onClick} disabled={disabled}>
+      {children}
+    </button>
+  );
 }
 
 async function api(path, options = {}) {
@@ -179,6 +232,23 @@ function RequestListPage() {
     }
   }
 
+  async function removeRequest(requestId) {
+    const request = items.find((item) => item.id === requestId);
+    if (request && inProgressStatuses.has(request.status)) {
+      window.alert("This request is still running and cannot be removed yet.");
+      return;
+    }
+    if (!window.confirm("Remove this request and its stored files?")) {
+      return;
+    }
+    try {
+      await api(`/api/requests/${requestId}`, { method: "DELETE" });
+      await reload();
+    } catch (removeError) {
+      window.alert(removeError.message);
+    }
+  }
+
   const items = data?.items || [];
 
   return (
@@ -201,9 +271,9 @@ function RequestListPage() {
               <button type="submit" disabled={creating}>
                 {creating ? "Creating..." : "Create request"}
               </button>
-              <button type="button" className="button-secondary" onClick={() => reload()}>
-                Refresh list
-              </button>
+              <IconButton title="Refresh request list" tone="secondary" onClick={() => reload()}>
+                <IconRefresh />
+              </IconButton>
             </div>
             {error ? <p className="error-text">{error}</p> : null}
           </form>
@@ -241,7 +311,20 @@ function RequestListPage() {
                       <span>{new Date(item.createdAt).toLocaleString()}</span>
                     </div>
                   </div>
-                  <StatusPill status={item.status} />
+                  <div className="request-row-controls">
+                    <StatusPill status={item.status} />
+                    <IconButton
+                      title="Delete request"
+                      tone="danger"
+                      disabled={inProgressStatuses.has(item.status)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        removeRequest(item.id);
+                      }}
+                    >
+                      <IconTrash />
+                    </IconButton>
+                  </div>
                 </div>
                 <a
                   href={item.sourceUrl}
@@ -264,6 +347,7 @@ function RequestListPage() {
 
 function RequestDetailPage() {
   const { requestId } = useParams();
+  const navigate = useNavigate();
   const loader = React.useCallback(() => api(`/api/requests/${requestId}`), [requestId]);
   const { data, loading, error, reload } = usePolling(loader, true);
   const item = data?.item;
@@ -271,6 +355,22 @@ function RequestDetailPage() {
   async function trigger(path) {
     await api(path, { method: "POST" });
     await reload();
+  }
+
+  async function removeRequest() {
+    if (inProgressStatuses.has(item.status)) {
+      window.alert("This request is still running and cannot be removed yet.");
+      return;
+    }
+    if (!window.confirm("Remove this request and its stored files?")) {
+      return;
+    }
+    try {
+      await api(`/api/requests/${requestId}`, { method: "DELETE" });
+      navigate("/");
+    } catch (removeError) {
+      window.alert(removeError.message);
+    }
   }
 
   if (loading && !item) {
@@ -306,7 +406,12 @@ function RequestDetailPage() {
               {item.sourceUrl}
             </a>
           </div>
-          <StatusPill status={item.status} />
+          <div className="request-row-controls">
+            <StatusPill status={item.status} />
+            <IconButton title="Delete request" tone="danger" disabled={inProgressStatuses.has(item.status)} onClick={removeRequest}>
+              <IconTrash />
+            </IconButton>
+          </div>
         </div>
 
         <div className="metric-grid">
@@ -443,9 +548,14 @@ function LocationModal({ preview, onClose }) {
             <h2>{preview.location}</h2>
             <p className="muted">{preview.title}</p>
           </div>
-          <button type="button" className="button-secondary" onClick={onClose}>
-            Close
-          </button>
+          <div className="modal-head-actions">
+            <IconButton title="Open in Google Maps" href={googleMapsUrl} tone="secondary">
+              <IconExternal />
+            </IconButton>
+            <IconButton title="Close preview" tone="secondary" onClick={onClose}>
+              <IconClose />
+            </IconButton>
+          </div>
         </div>
 
         <div className="modal-meta">
@@ -457,12 +567,6 @@ function LocationModal({ preview, onClose }) {
             <span className="chip-label">Distance</span>
             <span>{distanceKm !== null ? `~${distanceKm.toFixed(1)} km from you` : "Allow location to estimate distance"}</span>
           </span>
-        </div>
-
-        <div className="modal-actions">
-          <a href={googleMapsUrl} target="_blank" rel="noreferrer" className="button-link">
-            Open in Google Maps
-          </a>
         </div>
 
         {loading ? <p className="progress-box">Loading map preview...</p> : null}

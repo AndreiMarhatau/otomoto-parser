@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import threading
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -251,6 +252,14 @@ class RequestStore:
                 return updated
         raise KeyError(request_id)
 
+    def delete_request(self, request_id: str) -> None:
+        with self._lock:
+            requests = self._load()
+            filtered = [request for request in requests if request["id"] != request_id]
+            if len(filtered) == len(requests):
+                raise KeyError(request_id)
+            self._save(filtered)
+
 
 class ParserAppService:
     def __init__(
@@ -336,17 +345,15 @@ class ParserAppService:
             future = self._futures.get(request_id)
             if future is not None and not future.done():
                 return request
-
-        updated = self.store.update_request(
-            request_id,
-            status=REQUEST_STATUS_PENDING,
-            progressMessage="Queued.",
-            error=None,
-            lastRunMode=mode,
-            resultsReady=False if mode == RUN_MODE_FULL else request["resultsReady"],
-            excelReady=False if mode == RUN_MODE_FULL else request["excelReady"],
-        )
-        with self._lock:
+            updated = self.store.update_request(
+                request_id,
+                status=REQUEST_STATUS_PENDING,
+                progressMessage="Queued.",
+                error=None,
+                lastRunMode=mode,
+                resultsReady=False if mode == RUN_MODE_FULL else request["resultsReady"],
+                excelReady=False if mode == RUN_MODE_FULL else request["excelReady"],
+            )
             self._futures[request_id] = self.executor.submit(self._run_request, request_id, mode)
         return updated
 
@@ -369,6 +376,15 @@ class ParserAppService:
         if isinstance(next_page, int) and next_page > 1 and has_more is True:
             return RUN_MODE_RESUME
         return RUN_MODE_APPEND_NEWER
+
+    def delete_request(self, request_id: str) -> None:
+        with self._lock:
+            future = self._futures.get(request_id)
+            if future is not None and not future.done():
+                raise RuntimeError("Cannot delete a request while it is still running.")
+            request = self.get_request(request_id)
+            shutil.rmtree(Path(request["runDir"]), ignore_errors=True)
+            self.store.delete_request(request_id)
 
     def _update_progress(self, request_id: str, payload: dict[str, Any]) -> None:
         event = payload.get("event")

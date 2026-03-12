@@ -579,3 +579,22 @@ def test_geocode_endpoint_returns_server_side_lookup(monkeypatch, tmp_path: Path
         response = client.get("/api/geocode", params={"query": "Warsaw"})
         assert response.status_code == 200
         assert response.json()["item"]["label"] == "Resolved Warsaw"
+
+
+def test_delete_request_endpoint_removes_request(tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        delete_response = client.delete(f"/api/requests/{request_id}")
+        assert delete_response.status_code == 204
+
+        detail_response = client.get(f"/api/requests/{request_id}")
+        assert detail_response.status_code == 404
