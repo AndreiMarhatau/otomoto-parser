@@ -581,6 +581,21 @@ def test_geocode_endpoint_returns_server_side_lookup(monkeypatch, tmp_path: Path
         assert response.json()["item"]["label"] == "Resolved Warsaw"
 
 
+def test_geocode_batch_endpoint_returns_items(monkeypatch, tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+    monkeypatch.setattr(
+        app_module,
+        "geocode_location",
+        lambda query: {"lat": 52.23, "lon": 21.01, "label": f"Resolved {query}"},
+    )
+
+    with TestClient(app) as client:
+        response = client.post("/api/geocode/batch", json={"queries": ["Warsaw", "Krakow"]})
+        assert response.status_code == 200
+        assert response.json()["items"]["Warsaw"]["label"] == "Resolved Warsaw"
+
+
 def test_delete_request_endpoint_removes_request(tmp_path: Path) -> None:
     service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
     app = create_app(data_dir=tmp_path, service=service)

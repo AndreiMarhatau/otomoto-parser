@@ -23,7 +23,14 @@ class CreateRequestPayload(BaseModel):
     url: HttpUrl
 
 
+_GEOCODE_CACHE: dict[str, dict[str, Any] | None] = {}
+
+
 def geocode_location(query: str) -> dict[str, Any] | None:
+    cached = _GEOCODE_CACHE.get(query)
+    if cached is not None or query in _GEOCODE_CACHE:
+        return cached
+
     request = Request(
         f"https://nominatim.openstreetmap.org/search?{urlencode({'format': 'jsonv2', 'limit': 1, 'q': query})}",
         headers={
@@ -38,13 +45,16 @@ def geocode_location(query: str) -> dict[str, Any] | None:
         raise RuntimeError("Could not load map preview.") from exc
 
     if not payload:
+        _GEOCODE_CACHE[query] = None
         return None
     first = payload[0]
-    return {
+    result = {
         "lat": float(first["lat"]),
         "lon": float(first["lon"]),
         "label": first.get("display_name") or query,
     }
+    _GEOCODE_CACHE[query] = result
+    return result
 
 
 def frontend_dist_dir() -> Path:
@@ -154,6 +164,17 @@ def create_app(
         except RuntimeError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         return {"item": item}
+
+    @app.post("/api/geocode/batch")
+    def geocode_batch_endpoint(payload: dict[str, list[str]]) -> dict[str, Any]:
+        queries = payload.get("queries", [])
+        items: dict[str, Any] = {}
+        for query in dict.fromkeys(query for query in queries if isinstance(query, str) and query):
+            try:
+                items[query] = geocode_location(query)
+            except RuntimeError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return {"items": items}
 
     dist_dir = frontend_dist_dir()
     if dist_dir.exists():

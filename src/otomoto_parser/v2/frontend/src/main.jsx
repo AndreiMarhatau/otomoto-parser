@@ -43,6 +43,29 @@ function buildGoogleMapsUrl(location) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`;
 }
 
+function formatDistanceChip(itemLocation, geolocationState, locationEntry) {
+  if (!itemLocation) {
+    return "No location";
+  }
+  if (geolocationState.status === "denied") {
+    return "Location blocked";
+  }
+  if (geolocationState.status === "unavailable") {
+    return "Location unavailable";
+  }
+  if (!geolocationState.coords) {
+    return "Locating you...";
+  }
+  if (!locationEntry || locationEntry.status === "loading") {
+    return "Finding place...";
+  }
+  if (locationEntry.status === "error") {
+    return "Lookup failed";
+  }
+  const distanceKm = haversineKm(geolocationState.coords, locationEntry.coords);
+  return `~${distanceKm.toFixed(1)} km`;
+}
+
 function IconRefresh() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -588,10 +611,11 @@ function LocationModal({ preview, onClose }) {
   );
 }
 
-function ListingCard({ item, onOpenLocation }) {
+function ListingCard({ item, onOpenLocation, distanceLabel }) {
   const createdAt = item.createdAt ? new Date(item.createdAt).toLocaleString() : "—";
   const specs = [
     { label: "Price eval", value: item.priceEvaluation || "No price evaluation", tone: "price" },
+    { label: "Distance", value: distanceLabel, tone: "time" },
     { label: "Engine", value: item.engineCapacity || "No engine capacity", tone: "engine" },
     { label: "Power", value: item.enginePower || "No power", tone: "engine" },
     { label: "Year", value: item.year || "No year", tone: "year" },
@@ -663,6 +687,8 @@ function RequestResultsPage() {
   const [resultsError, setResultsError] = React.useState(null);
   const [activeCategory, setActiveCategory] = React.useState(categoryOrder[0]);
   const [locationPreview, setLocationPreview] = React.useState(null);
+  const [geolocationState, setGeolocationState] = React.useState({ status: "idle", coords: null });
+  const [locationCache, setLocationCache] = React.useState({});
 
   React.useEffect(() => {
     let active = true;
@@ -698,6 +724,89 @@ function RequestResultsPage() {
 
   const categoryMap = results?.categories || {};
   const currentItems = categoryMap[activeCategory]?.items || [];
+
+  React.useEffect(() => {
+    if (!results || geolocationState.status !== "idle") {
+      return;
+    }
+    if (!navigator.geolocation) {
+      setGeolocationState({ status: "unavailable", coords: null });
+      return;
+    }
+
+    setGeolocationState({ status: "loading", coords: null });
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setGeolocationState({
+          status: "ready",
+          coords: {
+            lat: position.coords.latitude,
+            lon: position.coords.longitude,
+          },
+        });
+      },
+      (error) => {
+        setGeolocationState({
+          status: error?.code === 1 ? "denied" : "unavailable",
+          coords: null,
+        });
+      },
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 },
+    );
+  }, [results, geolocationState.status]);
+
+  React.useEffect(() => {
+    if (!geolocationState.coords) {
+      return;
+    }
+
+    const uniqueLocations = [...new Set(currentItems.map((item) => item.location).filter(Boolean))];
+    const now = Date.now();
+    const missingLocations = uniqueLocations.filter((location) => {
+      const entry = locationCache[location];
+      if (!entry) {
+        return true;
+      }
+      return entry.status === "error" && (entry.retryAt || 0) <= now;
+    });
+    if (missingLocations.length === 0) {
+      return;
+    }
+
+    setLocationCache((current) => ({
+      ...current,
+      ...Object.fromEntries(missingLocations.map((location) => [location, { status: "loading" }])),
+    }));
+
+    api("/api/geocode/batch", {
+      method: "POST",
+      body: JSON.stringify({ queries: missingLocations }),
+    })
+      .then((payload) => {
+        setLocationCache((current) => ({
+          ...current,
+          ...Object.fromEntries(
+            missingLocations.map((location) => {
+              const item = payload.items?.[location];
+              return [
+                location,
+                item
+                  ? { status: "ready", coords: { lat: item.lat, lon: item.lon } }
+                  : { status: "error", retryAt: Date.now() + 15000 },
+              ];
+            }),
+          ),
+        }));
+      })
+      .catch(() => {
+        setLocationCache((current) => ({
+          ...current,
+          ...Object.fromEntries(
+            missingLocations.map((location) => [location, { status: "error", retryAt: Date.now() + 15000 }]),
+          ),
+        }));
+      });
+  }, [currentItems, geolocationState.coords, locationCache]);
 
   return (
     <Shell title="Categorized results">
@@ -741,7 +850,12 @@ function RequestResultsPage() {
             <div className="listing-grid">
               {currentItems.length === 0 ? <p className="muted">No listings in this category.</p> : null}
               {currentItems.map((item) => (
-                <ListingCard key={item.id} item={item} onOpenLocation={setLocationPreview} />
+                <ListingCard
+                  key={item.id}
+                  item={item}
+                  onOpenLocation={setLocationPreview}
+                  distanceLabel={formatDistanceChip(item.location, geolocationState, locationCache[item.location])}
+                />
               ))}
             </div>
           </>
