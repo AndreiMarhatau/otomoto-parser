@@ -34,6 +34,7 @@ dev = [
 otomoto-parser = "otomoto_parser.__main__:main"
 aggregation = "otomoto_parser.aggregation:main"
 parser-app = "otomoto_parser.v2.app:main"
+vehicle-history-report = "otomoto_parser.v1.history_report:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
