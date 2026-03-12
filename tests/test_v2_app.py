@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from urllib.error import URLError
 
 from fastapi.testclient import TestClient
 
 from otomoto_parser.v1.parser import RUN_MODE_APPEND_NEWER, RUN_MODE_FULL, RUN_MODE_RESUME
 from otomoto_parser.v2 import app as app_module
+from otomoto_parser.v2 import service as service_module
 from otomoto_parser.v2.app import create_app
 from otomoto_parser.v2.service import (
     CATEGORY_DATA_NOT_VERIFIED,
@@ -17,6 +19,8 @@ from otomoto_parser.v2.service import (
     ParserAppService,
     build_categorized_payload,
 )
+from otomoto_parser.v1.history_report import VehicleHistoryReport
+from otomoto_parser.v1.otomoto_vehicle_identity import OtomotoVehicleIdentity
 
 
 def _record(
@@ -79,6 +83,49 @@ def _sample_records() -> list[dict]:
         _record("3", price_evaluation={"indicator": "IN"}, cepik_verified=True, country_origin="us", title="Imported from US"),
         _record("4", price_evaluation={"indicator": "IN"}, cepik_verified=True, country_origin="pl", title="To check"),
     ]
+
+
+def _fake_identity() -> OtomotoVehicleIdentity:
+    return OtomotoVehicleIdentity(
+        advert_id="6146171299",
+        encrypted_vin="encrypted-vin",
+        encrypted_first_registration_date="encrypted-date",
+        encrypted_registration_number="encrypted-reg",
+        vin="WDDSJ4EB2EN056917",
+        first_registration_date="2014-01-01",
+        registration_number="DLU8613F",
+    )
+
+
+def _fake_history_report() -> VehicleHistoryReport:
+    return VehicleHistoryReport(
+        registration_number="DLU8613F",
+        vin_number="WDDSJ4EB2EN056917",
+        first_registration_date="2014-01-01",
+        api_version="1.0.20",
+        technical_data={
+            "technicalData": {
+                "basicData": {
+                    "make": "Mercedes-Benz",
+                    "model": "CLA",
+                    "type": "250",
+                    "modelYear": "2014",
+                    "fuel": "Petrol",
+                    "engineCapacity": "1991",
+                    "enginePower": "211",
+                    "bodyType": "Sedan",
+                    "color": "White",
+                },
+                "ownershipHistory": {
+                    "numberOfOwners": 2,
+                    "numberOfCoowners": 0,
+                    "dateOfLastOwnershipChange": "2021-06-04",
+                },
+            }
+        },
+        autodna_data={"summary": {"events": 3}},
+        carfax_data={"summary": {"entries": 1}},
+    )
 
 
 class FakeParserRunner:
@@ -613,3 +660,154 @@ def test_delete_request_endpoint_removes_request(tmp_path: Path) -> None:
 
         detail_response = client.get(f"/api/requests/{request_id}")
         assert detail_response.status_code == 404
+
+
+def test_vehicle_report_endpoint_fetches_and_caches_report(monkeypatch, tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+    identity_calls: list[str] = []
+    history_calls: list[tuple[str, str, str]] = []
+
+    monkeypatch.setattr(
+        service_module,
+        "fetch_otomoto_vehicle_identity",
+        lambda url, **kwargs: identity_calls.append(url) or _fake_identity(),
+    )
+
+    def fake_fetch_report(self, registration_number: str, vin_number: str, first_registration_date: str) -> VehicleHistoryReport:
+        history_calls.append((registration_number, vin_number, first_registration_date))
+        return _fake_history_report()
+
+    monkeypatch.setattr(service_module.VehicleHistoryClient, "fetch_report", fake_fetch_report)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        first_response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        assert first_response.status_code == 200
+        assert first_response.json()["item"]["identity"]["vin"] == "WDDSJ4EB2EN056917"
+        assert len(identity_calls) == 1
+        assert history_calls == [("DLU8613F", "WDDSJ4EB2EN056917", "2014-01-01")]
+
+        second_response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        assert second_response.status_code == 200
+        assert len(identity_calls) == 1
+        assert len(history_calls) == 1
+
+        results_response = client.get(f"/api/requests/{request_id}/results")
+        item = results_response.json()["categories"][CATEGORY_TO_BE_CHECKED]["items"][0]
+        assert item["vehicleReport"]["cached"] is True
+        assert item["vehicleReport"]["retrievedAt"]
+
+
+def test_vehicle_report_regenerate_overwrites_cache_and_survives_redo(monkeypatch, tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+    fetch_count = {"value": 0}
+
+    monkeypatch.setattr(service_module, "fetch_otomoto_vehicle_identity", lambda url, **kwargs: _fake_identity())
+
+    def fake_fetch_report(self, registration_number: str, vin_number: str, first_registration_date: str) -> VehicleHistoryReport:
+        fetch_count["value"] += 1
+        report = _fake_history_report()
+        report.autodna_data = {"summary": {"events": fetch_count["value"]}}
+        return report
+
+    monkeypatch.setattr(service_module.VehicleHistoryClient, "fetch_report", fake_fetch_report)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        first_response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        first_payload = first_response.json()["item"]
+        assert first_payload["report"]["autodna_data"]["summary"]["events"] == 1
+
+        regenerated_response = client.post(f"/api/requests/{request_id}/listings/4/vehicle-report/regenerate")
+        regenerated_payload = regenerated_response.json()["item"]
+        assert regenerated_payload["report"]["autodna_data"]["summary"]["events"] == 2
+
+        redo_response = client.post(f"/api/requests/{request_id}/redo")
+        assert redo_response.status_code == 200
+        _wait_until_ready(client, request_id)
+
+        cached_response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        cached_payload = cached_response.json()["item"]
+        assert cached_payload["report"]["autodna_data"]["summary"]["events"] == 2
+        assert fetch_count["value"] == 2
+
+
+def test_vehicle_report_endpoint_requires_listing_to_exist_in_current_request(monkeypatch, tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+
+    monkeypatch.setattr(service_module, "fetch_otomoto_vehicle_identity", lambda url, **kwargs: _fake_identity())
+    monkeypatch.setattr(service_module.VehicleHistoryClient, "fetch_report", lambda self, *args, **kwargs: _fake_history_report())
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        ready_item = _wait_until_ready(client, request_id)
+        assert ready_item["status"] == "ready"
+
+        first_response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        assert first_response.status_code == 200
+
+        results_path = Path(ready_item["resultsPath"])
+        categorized_path = Path(ready_item["categorizedPath"])
+        filtered_records = [record for record in _sample_records() if record["item_id"] != "4"]
+        results_path.write_text("".join(f"{json.dumps(record, ensure_ascii=True)}\n" for record in filtered_records), encoding="utf-8")
+        categorized_path.write_text(json.dumps(build_categorized_payload(results_path), ensure_ascii=True), encoding="utf-8")
+
+        missing_response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        assert missing_response.status_code == 404
+
+
+def test_vehicle_report_endpoint_normalizes_upstream_failures(monkeypatch, tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+
+    def fail_identity(url, **kwargs):
+        raise URLError("temporary failure")
+
+    monkeypatch.setattr(service_module, "fetch_otomoto_vehicle_identity", fail_identity)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        assert response.status_code == 502
+        assert "Could not fetch vehicle report data" in response.json()["detail"]
+
+
+def test_vehicle_report_endpoint_waits_for_ready_results(tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        service.store.update_request(request_id, resultsReady=False, status="running")
+
+        response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        assert response.status_code == 409

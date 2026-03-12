@@ -5,6 +5,7 @@ description = "GraphQL-based pagination parser for Otomoto"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "cryptography>=45.0.0",
   "fastapi>=0.116.0",
   "openpyxl>=3.1.0",
   "pandas>=2.2.0",
