@@ -143,6 +143,38 @@ def create_app(
             raise HTTPException(status_code=409, detail="Results are not ready yet.")
         return _service().get_results(request_id)
 
+    @app.get("/api/requests/{request_id}/listings/{listing_id}/vehicle-report")
+    def request_vehicle_report_endpoint(request_id: str, listing_id: str) -> dict[str, Any]:
+        try:
+            request = _service().get_request(request_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Request not found.") from exc
+        if not request["resultsReady"]:
+            raise HTTPException(status_code=409, detail="Results are not ready yet.")
+        try:
+            item = _service().get_vehicle_report(request_id, listing_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Listing not found.") from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return {"item": item}
+
+    @app.post("/api/requests/{request_id}/listings/{listing_id}/vehicle-report/regenerate")
+    def regenerate_vehicle_report_endpoint(request_id: str, listing_id: str) -> dict[str, Any]:
+        try:
+            request = _service().get_request(request_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Request not found.") from exc
+        if not request["resultsReady"]:
+            raise HTTPException(status_code=409, detail="Results are not ready yet.")
+        try:
+            item = _service().get_vehicle_report(request_id, listing_id, force_refresh=True)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Listing not found.") from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return {"item": item}
+
     @app.get("/api/requests/{request_id}/excel")
     def request_excel_endpoint(request_id: str) -> FileResponse:
         try:

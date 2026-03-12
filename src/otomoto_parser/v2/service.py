@@ -5,11 +5,14 @@ import shutil
 import threading
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, Callable
 
+from ..v1.history_report import VehicleHistoryClient, VehicleHistoryReport
+from ..v1.otomoto_vehicle_identity import OtomotoVehicleIdentity, fetch_otomoto_vehicle_identity
 from ..v1.aggregation import generate_aggregations
 from ..v1.parser import RUN_MODE_APPEND_NEWER, RUN_MODE_FULL, RUN_MODE_RESUME, parse_pages
 
@@ -201,6 +204,7 @@ class RequestPaths:
     state_path: Path
     categorized_path: Path
     excel_path: Path
+    reports_dir: Path
 
 
 class RequestStore:
@@ -277,6 +281,7 @@ class ParserAppService:
         self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="parser-app")
         self._futures: dict[str, Future[Any]] = {}
         self._lock = threading.Lock()
+        self._request_locks: dict[str, threading.Lock] = {}
         self._recover_in_progress_requests()
 
     def shutdown(self) -> None:
@@ -300,6 +305,7 @@ class ParserAppService:
             state_path=request_dir / "state.json",
             categorized_path=request_dir / "categorized.json",
             excel_path=request_dir / "aggregations.xlsx",
+            reports_dir=request_dir / "vehicle-reports",
         )
 
     def list_requests(self) -> list[dict[str, Any]]:
@@ -361,7 +367,10 @@ class ParserAppService:
         request = self.get_request(request_id)
         if not request["resultsReady"]:
             raise RuntimeError("Results are not ready yet.")
-        return _read_json(Path(request["categorizedPath"]), {})
+        payload = _read_json(Path(request["categorizedPath"]), {})
+        payload["requestId"] = request_id
+        self._attach_report_cache_metadata(payload)
+        return payload
 
     def choose_resume_mode(self, request_id: str) -> str:
         request = self.get_request(request_id)
@@ -378,13 +387,174 @@ class ParserAppService:
         return RUN_MODE_APPEND_NEWER
 
     def delete_request(self, request_id: str) -> None:
+        request_lock = self._request_lock(request_id)
         with self._lock:
             future = self._futures.get(request_id)
             if future is not None and not future.done():
                 raise RuntimeError("Cannot delete a request while it is still running.")
+        with request_lock:
+            with self._lock:
+                future = self._futures.get(request_id)
+                if future is not None and not future.done():
+                    raise RuntimeError("Cannot delete a request while it is still running.")
             request = self.get_request(request_id)
             shutil.rmtree(Path(request["runDir"]), ignore_errors=True)
             self.store.delete_request(request_id)
+        with self._lock:
+            self._request_locks.pop(request_id, None)
+
+    def get_vehicle_report(self, request_id: str, listing_id: str, *, force_refresh: bool = False) -> dict[str, Any]:
+        with self._request_lock(request_id):
+            listing = self._resolve_listing_for_report(request_id, listing_id)
+            canonical_listing_id = listing["id"]
+            cache_path = self._vehicle_report_path(request_id, canonical_listing_id)
+            if not force_refresh:
+                cached = _read_json(cache_path, None)
+                if cached is not None:
+                    return cached
+            url = listing.get("url")
+            if not isinstance(url, str) or not url:
+                raise RuntimeError("Listing URL is missing, so the vehicle report cannot be fetched.")
+            try:
+                identity = fetch_otomoto_vehicle_identity(
+                    url,
+                    timeout_s=float(self.parser_options.get("request_timeout_s", 45.0)),
+                )
+                history_client = VehicleHistoryClient(
+                    timeout_s=float(self.parser_options.get("request_timeout_s", 45.0)),
+                    retry_attempts=int(self.parser_options.get("retry_attempts", 4)),
+                    backoff_base_s=float(self.parser_options.get("backoff_base", 1.0)),
+                )
+                history = history_client.fetch_report(
+                    identity.registration_number,
+                    identity.vin,
+                    identity.first_registration_date,
+                )
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError(f"Could not fetch vehicle report data: {exc}") from exc
+            payload = self._build_vehicle_report_payload(listing, identity, history)
+            self.get_request(request_id)
+            _write_json(cache_path, payload)
+            return payload
+
+    def _attach_report_cache_metadata(self, payload: dict[str, Any]) -> None:
+        categories = payload.get("categories")
+        if not isinstance(categories, dict):
+            return
+        request_id = payload.get("requestId")
+        if not isinstance(request_id, str) or not request_id:
+            return
+        for category in categories.values():
+            if not isinstance(category, dict):
+                continue
+            for item in category.get("items", []):
+                if not isinstance(item, dict) or item.get("id") is None:
+                    continue
+                report = _read_json(self._vehicle_report_path(request_id, str(item["id"])), None)
+                item["vehicleReport"] = {
+                    "cached": report is not None,
+                    "retrievedAt": report.get("retrievedAt") if report else None,
+                }
+
+    def _find_listing_record(self, request_id: str, listing_id: str) -> dict[str, Any]:
+        request = self.get_request(request_id)
+        results_path = Path(request["resultsPath"])
+        if not results_path.exists():
+            raise RuntimeError("The stored results for this request are not available.")
+        needle = str(listing_id)
+        for line in results_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            candidates = {
+                str(record.get("item_id") or ""),
+                str(record.get("item_key") or ""),
+                str(((record.get("node") or {}).get("id")) or ""),
+            }
+            if needle in candidates:
+                return record
+        raise KeyError(listing_id)
+
+    def _build_vehicle_report_payload(
+        self,
+        listing: dict[str, Any],
+        identity: OtomotoVehicleIdentity,
+        history: VehicleHistoryReport,
+    ) -> dict[str, Any]:
+        return {
+            "listingId": listing["id"],
+            "listingUrl": listing.get("url"),
+            "listingTitle": listing.get("title"),
+            "retrievedAt": utc_now(),
+            "identity": {
+                "advertId": identity.advert_id,
+                "vin": identity.vin,
+                "registrationNumber": identity.registration_number,
+                "firstRegistrationDate": identity.first_registration_date,
+            },
+            "report": asdict(history),
+            "summary": self._build_report_summary(history),
+        }
+
+    def _vehicle_report_path(self, request_id: str, listing_id: str) -> Path:
+        paths = self.request_paths(request_id)
+        cache_key = sha256(listing_id.encode("utf-8")).hexdigest()
+        return paths.reports_dir / f"{cache_key}.json"
+
+    def _canonical_listing_id(self, record: dict[str, Any]) -> str:
+        node = record.get("node") if isinstance(record.get("node"), dict) else {}
+        return str(record.get("item_id") or node.get("id") or record.get("item_key") or "")
+
+    def _resolve_listing_for_report(self, request_id: str, listing_id: str) -> dict[str, Any]:
+        request = self.get_request(request_id)
+        if request["resultsReady"]:
+            categorized = _read_json(Path(request["categorizedPath"]), {})
+            categories = categorized.get("categories", {})
+            if isinstance(categories, dict):
+                for category in categories.values():
+                    if not isinstance(category, dict):
+                        continue
+                    for item in category.get("items", []):
+                        if isinstance(item, dict) and str(item.get("id")) == str(listing_id):
+                            return item
+
+        record = self._find_listing_record(request_id, listing_id)
+        node = record.get("node") if isinstance(record.get("node"), dict) else {}
+        return {
+            "id": self._canonical_listing_id(record),
+            "title": node.get("title"),
+            "url": node.get("url"),
+            "location": _location_display(node.get("location")),
+        }
+
+    def _request_lock(self, request_id: str) -> threading.Lock:
+        with self._lock:
+            lock = self._request_locks.get(request_id)
+            if lock is None:
+                lock = threading.Lock()
+                self._request_locks[request_id] = lock
+            return lock
+
+    def _build_report_summary(self, history: VehicleHistoryReport) -> dict[str, Any]:
+        technical_data = history.technical_data.get("technicalData", {})
+        basic_data = technical_data.get("basicData", {}) if isinstance(technical_data, dict) else {}
+        ownership_history = technical_data.get("ownershipHistory", {}) if isinstance(technical_data, dict) else {}
+        return {
+            "make": basic_data.get("make"),
+            "model": basic_data.get("model"),
+            "variant": basic_data.get("type"),
+            "modelYear": basic_data.get("modelYear"),
+            "fuelType": basic_data.get("fuel"),
+            "engineCapacity": basic_data.get("engineCapacity"),
+            "enginePower": basic_data.get("enginePower"),
+            "bodyType": basic_data.get("bodyType"),
+            "color": basic_data.get("color"),
+            "ownersCount": ownership_history.get("numberOfOwners"),
+            "coOwnersCount": ownership_history.get("numberOfCoowners"),
+            "lastOwnershipChange": ownership_history.get("dateOfLastOwnershipChange"),
+            "autodnaAvailable": bool(history.autodna_data),
+            "carfaxAvailable": bool(history.carfax_data),
+        }
 
     def _update_progress(self, request_id: str, payload: dict[str, Any]) -> None:
         event = payload.get("event")

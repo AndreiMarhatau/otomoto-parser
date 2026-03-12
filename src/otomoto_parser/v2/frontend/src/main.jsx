@@ -66,6 +66,27 @@ function formatDistanceChip(itemLocation, geolocationState, locationEntry) {
   return `~${distanceKm.toFixed(1)} km from you`;
 }
 
+function formatFieldLabel(key) {
+  return key
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/^./, (char) => char.toUpperCase());
+}
+
+function formatValue(value) {
+  if (value === null || value === undefined || value === "") {
+    return "—";
+  }
+  if (typeof value === "boolean") {
+    return value ? "Yes" : "No";
+  }
+  if (Array.isArray(value)) {
+    return value.length ? value.join(", ") : "—";
+  }
+  return String(value);
+}
+
 function IconRefresh() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -96,6 +117,24 @@ function IconExternal() {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M14 5h5v5M19 5l-8 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M19 14v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function IconReport() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M8 4h8l4 4v10a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M16 4v4h4M9 12h6M9 16h6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function IconCheckBadge() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 2l2.1 2.3 3.1-.3 1.2 2.8 2.8 1.2-.3 3.1L23 13l-2.1 2.3.3 3.1-2.8 1.2-1.2 2.8-3.1-.3L12 24l-2.3-2.1-3.1.3-1.2-2.8-2.8-1.2.3-3.1L1 13l2.1-2.3-.3-3.1 2.8-1.2 1.2-2.8 3.1.3z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+      <path d="M8.5 12.5l2.3 2.3 4.7-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -611,7 +650,189 @@ function LocationModal({ preview, onClose }) {
   );
 }
 
-function ListingCard({ item, onOpenLocation, distanceLabel }) {
+function DataPairs({ entries }) {
+  return (
+    <div className="report-pairs">
+      {entries.map((entry) => (
+        <div key={entry.label} className="report-pair">
+          <span>{entry.label}</span>
+          <strong>{formatValue(entry.value)}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DataTree({ label, value }) {
+  if (value === null || value === undefined || value === "" || (Array.isArray(value) && value.length === 0)) {
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    const scalarValues = value.every((item) => item === null || ["string", "number", "boolean"].includes(typeof item));
+    if (scalarValues) {
+      return (
+        <div className="report-tree-block">
+          <span className="report-tree-label">{label}</span>
+          <div className="report-tree-value">{formatValue(value)}</div>
+        </div>
+      );
+    }
+    return (
+      <div className="report-tree-block">
+        <span className="report-tree-label">{label}</span>
+        <div className="report-tree-nested-list">
+          {value.map((item, index) => (
+            <DataTree key={`${label}-${index}`} label={`${label} ${index + 1}`} value={item} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (typeof value === "object") {
+    const entries = Object.entries(value).filter(([, child]) => child !== null && child !== undefined && child !== "");
+    if (entries.length === 0) {
+      return null;
+    }
+    const scalarEntries = entries.filter(([, child]) => child === null || ["string", "number", "boolean"].includes(typeof child));
+    const nestedEntries = entries.filter(([, child]) => !(child === null || ["string", "number", "boolean"].includes(typeof child)));
+    return (
+      <div className="report-tree-block">
+        <span className="report-tree-label">{label}</span>
+        {scalarEntries.length ? (
+          <DataPairs
+            entries={scalarEntries.map(([childKey, childValue]) => ({
+              label: formatFieldLabel(childKey),
+              value: childValue,
+            }))}
+          />
+        ) : null}
+        {nestedEntries.length ? (
+          <div className="report-tree-nested-list">
+            {nestedEntries.map(([childKey, childValue]) => (
+              <DataTree key={`${label}-${childKey}`} label={formatFieldLabel(childKey)} value={childValue} />
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="report-tree-block">
+      <span className="report-tree-label">{label}</span>
+      <div className="report-tree-value">{formatValue(value)}</div>
+    </div>
+  );
+}
+
+function VehicleReportModal({ state, onClose, onRegenerate }) {
+  if (!state) {
+    return null;
+  }
+
+  const { item, loading, regenerating, error, data } = state;
+  const identity = data?.identity || {};
+  const summary = data?.summary || {};
+  const report = data?.report || {};
+  const retrievedAt = data?.retrievedAt ? new Date(data.retrievedAt).toLocaleString() : null;
+  const summaryEntries = [
+    { label: "VIN", value: identity.vin },
+    { label: "Registration", value: identity.registrationNumber },
+    { label: "First registration", value: identity.firstRegistrationDate },
+    { label: "Make", value: summary.make },
+    { label: "Model", value: summary.model },
+    { label: "Variant", value: summary.variant },
+    { label: "Model year", value: summary.modelYear },
+    { label: "Fuel", value: summary.fuelType },
+    { label: "Engine capacity", value: summary.engineCapacity },
+    { label: "Engine power", value: summary.enginePower },
+    { label: "Body type", value: summary.bodyType },
+    { label: "Color", value: summary.color },
+    { label: "Owners", value: summary.ownersCount },
+    { label: "Co-owners", value: summary.coOwnersCount },
+    { label: "Last ownership change", value: summary.lastOwnershipChange },
+  ].filter((entry) => entry.value !== null && entry.value !== undefined && entry.value !== "");
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-panel modal-panel-report" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <p className="eyebrow">Vehicle report</p>
+            <h2>{item.title}</h2>
+            <p className="muted">{item.location || "Location unavailable"}</p>
+          </div>
+          <div className="modal-head-actions">
+            <IconButton title="Open listing" href={item.url} tone="secondary">
+              <IconExternal />
+            </IconButton>
+            <IconButton title="Regenerate report" tone="secondary" onClick={onRegenerate} disabled={loading || regenerating}>
+              <IconRefresh />
+            </IconButton>
+            <IconButton title="Close report" tone="secondary" onClick={onClose}>
+              <IconClose />
+            </IconButton>
+          </div>
+        </div>
+
+        <div className="modal-meta">
+          <span className="chip chip-place">
+            <span className="chip-label">Status</span>
+            <span>{data ? "Cached report ready" : loading ? "Fetching report" : "Waiting"}</span>
+          </span>
+          <span className="chip chip-time">
+            <span className="chip-label">Retrieved</span>
+            <span>{retrievedAt || "Not retrieved yet"}</span>
+          </span>
+        </div>
+
+        {loading ? <p className="progress-box">Fetching listing identity and vehicle history sources...</p> : null}
+        {regenerating ? <p className="progress-box">Refreshing cached report...</p> : null}
+        {error ? <p className="error-text">{error}</p> : null}
+
+        {data ? (
+          <div className="report-layout">
+            <section className="report-section">
+              <h3>Summary</h3>
+              <DataPairs entries={summaryEntries} />
+            </section>
+
+            <section className="report-section">
+              <h3>Source status</h3>
+              <DataPairs
+                entries={[
+                  { label: "Historia Pojazdu API", value: report.api_version || "—" },
+                  { label: "AutoDNA payload", value: summary.autodnaAvailable ? "Available" : "Empty" },
+                  { label: "Carfax payload", value: summary.carfaxAvailable ? "Available" : "Empty" },
+                  { label: "Advert id", value: identity.advertId },
+                ]}
+              />
+            </section>
+
+            <details className="report-details" open>
+              <summary>Technical data</summary>
+              <DataTree label="Technical data" value={report.technical_data} />
+            </details>
+
+            <details className="report-details">
+              <summary>AutoDNA</summary>
+              <DataTree label="AutoDNA" value={report.autodna_data} />
+            </details>
+
+            <details className="report-details">
+              <summary>Carfax</summary>
+              <DataTree label="Carfax" value={report.carfax_data} />
+            </details>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function ListingCard({ item, onOpenLocation, onOpenReport, distanceLabel }) {
   const createdAt = item.createdAt ? new Date(item.createdAt).toLocaleString() : "—";
   const specs = [
     { label: "Price eval", value: item.priceEvaluation || "No price evaluation", tone: "price" },
@@ -643,6 +864,25 @@ function ListingCard({ item, onOpenLocation, distanceLabel }) {
             <strong>{item.price ? `${item.price.toLocaleString("pl-PL")} ${item.priceCurrency}` : "—"}</strong>
           </div>
           <p className="muted">{item.shortDescription || "No short description."}</p>
+          <div className="listing-action-row">
+            <button
+              type="button"
+              className="listing-report-button chip-interactive"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onOpenReport(item);
+              }}
+            >
+              <IconReport />
+              <span>Vehicle report</span>
+              {item.vehicleReport?.cached ? (
+                <span className="listing-report-state" title={`Cached ${new Date(item.vehicleReport.retrievedAt).toLocaleString()}`}>
+                  <IconCheckBadge />
+                </span>
+              ) : null}
+            </button>
+          </div>
           <div className="listing-place-row">
             {item.location ? (
               <button
@@ -681,8 +921,94 @@ function RequestResultsPage() {
   const [resultsError, setResultsError] = React.useState(null);
   const [activeCategory, setActiveCategory] = React.useState(categoryOrder[0]);
   const [locationPreview, setLocationPreview] = React.useState(null);
+  const [vehicleReportState, setVehicleReportState] = React.useState(null);
   const [geolocationState, setGeolocationState] = React.useState({ status: "idle", coords: null });
   const [locationCache, setLocationCache] = React.useState({});
+  const vehicleReportRequestRef = React.useRef(0);
+
+  const openVehicleReport = React.useCallback(async (item) => {
+    const requestToken = vehicleReportRequestRef.current + 1;
+    vehicleReportRequestRef.current = requestToken;
+    setVehicleReportState({ item, loading: true, regenerating: false, error: null, data: null });
+    try {
+      const payload = await api(`/api/requests/${requestId}/listings/${item.id}/vehicle-report`);
+      if (vehicleReportRequestRef.current !== requestToken) {
+        return;
+      }
+      setVehicleReportState({ item, loading: false, regenerating: false, error: null, data: payload.item });
+      setResults((current) => {
+        if (!current) {
+          return current;
+        }
+        const categories = Object.fromEntries(
+          Object.entries(current.categories || {}).map(([category, value]) => [
+            category,
+            {
+              ...value,
+              items: (value.items || []).map((candidate) =>
+                candidate.id === item.id
+                  ? {
+                      ...candidate,
+                      vehicleReport: { cached: true, retrievedAt: payload.item.retrievedAt },
+                    }
+                  : candidate,
+              ),
+            },
+          ]),
+        );
+        return { ...current, categories };
+      });
+    } catch (error) {
+      if (vehicleReportRequestRef.current !== requestToken) {
+        return;
+      }
+      setVehicleReportState({ item, loading: false, regenerating: false, error: error.message, data: null });
+    }
+  }, [requestId]);
+
+  const regenerateVehicleReport = React.useCallback(async () => {
+    if (!vehicleReportState?.item) {
+      return;
+    }
+    const item = vehicleReportState.item;
+    const requestToken = vehicleReportRequestRef.current + 1;
+    vehicleReportRequestRef.current = requestToken;
+    setVehicleReportState((current) => ({ ...current, regenerating: true, error: null }));
+    try {
+      const payload = await api(`/api/requests/${requestId}/listings/${item.id}/vehicle-report/regenerate`, { method: "POST" });
+      if (vehicleReportRequestRef.current !== requestToken) {
+        return;
+      }
+      setVehicleReportState({ item, loading: false, regenerating: false, error: null, data: payload.item });
+      setResults((current) => {
+        if (!current) {
+          return current;
+        }
+        const categories = Object.fromEntries(
+          Object.entries(current.categories || {}).map(([category, value]) => [
+            category,
+            {
+              ...value,
+              items: (value.items || []).map((candidate) =>
+                candidate.id === item.id
+                  ? {
+                      ...candidate,
+                      vehicleReport: { cached: true, retrievedAt: payload.item.retrievedAt },
+                    }
+                  : candidate,
+              ),
+            },
+          ]),
+        );
+        return { ...current, categories };
+      });
+    } catch (error) {
+      if (vehicleReportRequestRef.current !== requestToken) {
+        return;
+      }
+      setVehicleReportState((current) => ({ ...current, regenerating: false, error: error.message }));
+    }
+  }, [requestId, vehicleReportState]);
 
   React.useEffect(() => {
     let active = true;
@@ -848,6 +1174,7 @@ function RequestResultsPage() {
                   key={item.id}
                   item={item}
                   onOpenLocation={setLocationPreview}
+                  onOpenReport={openVehicleReport}
                   distanceLabel={formatDistanceChip(item.location, geolocationState, locationCache[item.location])}
                 />
               ))}
@@ -859,6 +1186,14 @@ function RequestResultsPage() {
         key={locationPreview ? `${locationPreview.title}-${locationPreview.location}` : "no-location-preview"}
         preview={locationPreview}
         onClose={() => setLocationPreview(null)}
+      />
+      <VehicleReportModal
+        state={vehicleReportState}
+        onClose={() => {
+          vehicleReportRequestRef.current += 1;
+          setVehicleReportState(null);
+        }}
+        onRegenerate={regenerateVehicleReport}
       />
     </Shell>
   );
