@@ -363,14 +363,66 @@ class ParserAppService:
             self._futures[request_id] = self.executor.submit(self._run_request, request_id, mode)
         return updated
 
-    def get_results(self, request_id: str) -> dict[str, Any]:
+    def get_results(
+        self,
+        request_id: str,
+        *,
+        category: str | None = None,
+        page: int = 1,
+        page_size: int = 12,
+    ) -> dict[str, Any]:
         request = self.get_request(request_id)
         if not request["resultsReady"]:
             raise RuntimeError("Results are not ready yet.")
         payload = _read_json(Path(request["categorizedPath"]), {})
-        payload["requestId"] = request_id
-        self._attach_report_cache_metadata(payload)
-        return payload
+        categories = payload.get("categories", {})
+        if not isinstance(categories, dict):
+            return {"requestId": request_id, "generatedAt": utc_now(), "totalCount": 0, "categories": {}, "items": [], "pagination": {"page": 1, "pageSize": page_size, "totalPages": 1, "totalItems": 0}, "currentCategory": category}
+
+        current_category = category if category in categories else next(iter(categories.keys()), None)
+        if current_category is None:
+            return {
+                "requestId": request_id,
+                "generatedAt": payload.get("generatedAt") or utc_now(),
+                "totalCount": payload.get("totalCount", 0),
+                "categories": {},
+                "items": [],
+                "pagination": {"page": 1, "pageSize": page_size, "totalPages": 1, "totalItems": 0},
+                "currentCategory": None,
+            }
+
+        selected = categories.get(current_category, {})
+        all_items = selected.get("items", []) if isinstance(selected, dict) else []
+        if not isinstance(all_items, list):
+            all_items = []
+        safe_page_size = max(1, page_size)
+        total_items = len(all_items)
+        total_pages = max(1, (total_items + safe_page_size - 1) // safe_page_size)
+        safe_page = min(max(1, page), total_pages)
+        start_index = (safe_page - 1) * safe_page_size
+        current_items = [dict(item) for item in all_items[start_index : start_index + safe_page_size] if isinstance(item, dict)]
+        self._attach_report_cache_metadata(request_id, current_items)
+        return {
+            "requestId": request_id,
+            "generatedAt": payload.get("generatedAt") or utc_now(),
+            "totalCount": payload.get("totalCount", 0),
+            "categories": {
+                name: {
+                    "label": value.get("label", name),
+                    "count": value.get("count", 0),
+                }
+                for name, value in categories.items()
+                if isinstance(value, dict)
+            },
+            "currentCategory": current_category,
+            "items": current_items,
+            "pagination": {
+                "page": safe_page,
+                "pageSize": safe_page_size,
+                "totalPages": total_pages,
+                "totalItems": total_items,
+            },
+        }
 
     def choose_resume_mode(self, request_id: str) -> str:
         request = self.get_request(request_id)
@@ -437,24 +489,15 @@ class ParserAppService:
             _write_json(cache_path, payload)
             return payload
 
-    def _attach_report_cache_metadata(self, payload: dict[str, Any]) -> None:
-        categories = payload.get("categories")
-        if not isinstance(categories, dict):
-            return
-        request_id = payload.get("requestId")
-        if not isinstance(request_id, str) or not request_id:
-            return
-        for category in categories.values():
-            if not isinstance(category, dict):
+    def _attach_report_cache_metadata(self, request_id: str, items: list[dict[str, Any]]) -> None:
+        for item in items:
+            if not isinstance(item, dict) or item.get("id") is None:
                 continue
-            for item in category.get("items", []):
-                if not isinstance(item, dict) or item.get("id") is None:
-                    continue
-                report = _read_json(self._vehicle_report_path(request_id, str(item["id"])), None)
-                item["vehicleReport"] = {
-                    "cached": report is not None,
-                    "retrievedAt": report.get("retrievedAt") if report else None,
-                }
+            report = _read_json(self._vehicle_report_path(request_id, str(item["id"])), None)
+            item["vehicleReport"] = {
+                "cached": report is not None,
+                "retrievedAt": report.get("retrievedAt") if report else None,
+            }
 
     def _find_listing_record(self, request_id: str, listing_id: str) -> dict[str, Any]:
         request = self.get_request(request_id)

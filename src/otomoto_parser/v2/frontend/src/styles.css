@@ -332,12 +332,30 @@ textarea {
 .pagination-button {
   background: #ede2d1;
   color: #4e3d2b;
-  padding: 0.65rem 0.95rem;
+  padding: 0.45rem 0.7rem;
+  min-width: 2.25rem;
+  min-height: 2.25rem;
+}
+
+.pagination-button-icon {
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+}
+
+.pagination-button-icon svg {
+  width: 0.95rem;
+  height: 0.95rem;
 }
 
 .pagination-button.active {
   background: #1f1c18;
   color: #fff9f0;
+}
+
+.pagination-ellipsis {
+  color: #6c5944;
+  padding: 0 0.1rem;
 }
 
 .listing-card {
@@ -697,6 +715,10 @@ textarea {
   }
 
   .results-controls {
+    justify-content: flex-start;
+  }
+
+  .results-footer {
     justify-content: flex-start;
   }
 }
