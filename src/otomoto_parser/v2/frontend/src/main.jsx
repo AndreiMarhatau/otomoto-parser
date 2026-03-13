@@ -225,11 +225,15 @@ function IconButton({ title, onClick, href, disabled = false, tone = "default", 
   );
 }
 
-function CategoryPicker({ item, categories, busy, onChange, onCreateCategory }) {
+function CategoryPicker({ item, categories, busy, onChange, onCreateCategory, onOpenChange }) {
   const [open, setOpen] = React.useState(false);
   const containerRef = React.useRef(null);
   const selectedKeys = new Set(item.savedCategoryKeys || []);
   const selectedCount = categories.filter((category) => selectedKeys.has(category.key)).length;
+
+  React.useEffect(() => {
+    onOpenChange?.(open);
+  }, [onOpenChange, open]);
 
   React.useEffect(() => {
     if (!open) {
@@ -257,7 +261,7 @@ function CategoryPicker({ item, categories, busy, onChange, onCreateCategory }) 
 
   return (
     <div
-      className="category-picker"
+      className={open ? "category-picker open" : "category-picker"}
       ref={containerRef}
       onClick={(event) => {
         event.preventDefault();
@@ -985,6 +989,7 @@ function VehicleReportModal({ state, onClose, onRegenerate }) {
 }
 
 function ListingCard({ item, assignableCategories, categoryBusy, onAssignCategories, onCreateCategory, onOpenLocation, onOpenReport, distanceLabel }) {
+  const [categoryPickerOpen, setCategoryPickerOpen] = React.useState(false);
   const createdAt = item.createdAt ? new Date(item.createdAt).toLocaleString() : "—";
   const reportDisabled = item.dataVerified !== true && item.vehicleReport?.cached !== true;
   const specs = [
@@ -1002,7 +1007,7 @@ function ListingCard({ item, assignableCategories, categoryBusy, onAssignCategor
   ];
 
   return (
-    <article className="listing-card">
+    <article className={categoryPickerOpen ? "listing-card listing-card-overlay-open" : "listing-card"}>
       <a
         href={item.url}
         target="_blank"
@@ -1027,6 +1032,7 @@ function ListingCard({ item, assignableCategories, categoryBusy, onAssignCategor
               busy={categoryBusy}
               onChange={onAssignCategories}
               onCreateCategory={onCreateCategory}
+              onOpenChange={setCategoryPickerOpen}
             />
             <button
               type="button"
