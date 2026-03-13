@@ -1143,11 +1143,14 @@ function RequestResultsPage() {
   const [reloadToken, setReloadToken] = React.useState(0);
   const [categoryBusyByListing, setCategoryBusyByListing] = React.useState({});
   const vehicleReportRequestRef = React.useRef(0);
+  const listTopRef = React.useRef(null);
+  const previousPageRef = React.useRef(null);
 
   React.useEffect(() => {
     setPageSize(pageSizeOptions[0]);
     setCurrentPage(1);
     setReloadToken(0);
+    previousPageRef.current = null;
   }, [requestId]);
 
   const bumpResultsReload = React.useCallback(() => {
@@ -1398,6 +1401,17 @@ function RequestResultsPage() {
   }, [currentPage, totalPages]);
 
   React.useEffect(() => {
+    if (previousPageRef.current === null) {
+      previousPageRef.current = safePage;
+      return;
+    }
+    if (previousPageRef.current !== safePage) {
+      listTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      previousPageRef.current = safePage;
+    }
+  }, [safePage]);
+
+  React.useEffect(() => {
     if (!results || geolocationState.status !== "idle") {
       return;
     }
@@ -1556,7 +1570,7 @@ function RequestResultsPage() {
                 ) : null}
               </div>
             </div>
-            <div className="listing-grid">
+            <div ref={listTopRef} className="listing-grid">
               {currentItems.length === 0 ? <p className="muted">No listings in this category.</p> : null}
               {currentItems.map((item) => (
                 <ListingCard
