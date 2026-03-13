@@ -88,6 +88,15 @@ function formatValue(value) {
   return String(value);
 }
 
+function scrollWindowToPosition(top) {
+  window.scrollTo(0, top);
+  if (document.scrollingElement) {
+    document.scrollingElement.scrollTop = top;
+  }
+  document.documentElement.scrollTop = top;
+  document.body.scrollTop = top;
+}
+
 function IconRefresh() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1145,12 +1154,17 @@ function RequestResultsPage() {
   const vehicleReportRequestRef = React.useRef(0);
   const listTopRef = React.useRef(null);
   const previousPageRef = React.useRef(null);
+  const paginationScrollRafRef = React.useRef(null);
 
   React.useEffect(() => {
     setPageSize(pageSizeOptions[0]);
     setCurrentPage(1);
     setReloadToken(0);
     previousPageRef.current = null;
+    if (paginationScrollRafRef.current !== null) {
+      window.cancelAnimationFrame(paginationScrollRafRef.current);
+      paginationScrollRafRef.current = null;
+    }
   }, [requestId]);
 
   const bumpResultsReload = React.useCallback(() => {
@@ -1406,18 +1420,26 @@ function RequestResultsPage() {
       return;
     }
     if (previousPageRef.current !== safePage) {
-      window.requestAnimationFrame(() => {
+      if (paginationScrollRafRef.current !== null) {
+        window.cancelAnimationFrame(paginationScrollRafRef.current);
+      }
+      paginationScrollRafRef.current = window.requestAnimationFrame(() => {
+        paginationScrollRafRef.current = null;
         const top = listTopRef.current?.getBoundingClientRect?.().top;
         if (typeof top !== "number") {
           return;
         }
-        window.scrollTo({
-          top: Math.max(0, top + window.scrollY - 16),
-          behavior: "smooth",
-        });
+        const targetTop = Math.max(0, top + window.scrollY - 16);
+        scrollWindowToPosition(targetTop);
       });
       previousPageRef.current = safePage;
     }
+    return () => {
+      if (paginationScrollRafRef.current !== null) {
+        window.cancelAnimationFrame(paginationScrollRafRef.current);
+        paginationScrollRafRef.current = null;
+      }
+    };
   }, [safePage]);
 
   React.useEffect(() => {
