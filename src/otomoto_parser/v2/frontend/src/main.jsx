@@ -88,21 +88,13 @@ function formatValue(value) {
   return String(value);
 }
 
-function isStandaloneDisplayMode() {
-  return window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator.standalone === true;
-}
-
 function scrollWindowToPosition(top) {
-  if (isStandaloneDisplayMode()) {
-    window.scrollTo(0, top);
-    if (document.scrollingElement) {
-      document.scrollingElement.scrollTop = top;
-    }
-    document.documentElement.scrollTop = top;
-    document.body.scrollTop = top;
-    return;
+  window.scrollTo(0, top);
+  if (document.scrollingElement) {
+    document.scrollingElement.scrollTop = top;
   }
-  window.scrollTo({ top, behavior: "smooth" });
+  document.documentElement.scrollTop = top;
+  document.body.scrollTop = top;
 }
 
 function IconRefresh() {
@@ -1163,7 +1155,6 @@ function RequestResultsPage() {
   const listTopRef = React.useRef(null);
   const previousPageRef = React.useRef(null);
   const paginationScrollRafRef = React.useRef(null);
-  const paginationScrollTimeoutRef = React.useRef(null);
 
   React.useEffect(() => {
     setPageSize(pageSizeOptions[0]);
@@ -1173,10 +1164,6 @@ function RequestResultsPage() {
     if (paginationScrollRafRef.current !== null) {
       window.cancelAnimationFrame(paginationScrollRafRef.current);
       paginationScrollRafRef.current = null;
-    }
-    if (paginationScrollTimeoutRef.current !== null) {
-      window.clearTimeout(paginationScrollTimeoutRef.current);
-      paginationScrollTimeoutRef.current = null;
     }
   }, [requestId]);
 
@@ -1444,13 +1431,6 @@ function RequestResultsPage() {
         }
         const targetTop = Math.max(0, top + window.scrollY - 16);
         scrollWindowToPosition(targetTop);
-        if (paginationScrollTimeoutRef.current !== null) {
-          window.clearTimeout(paginationScrollTimeoutRef.current);
-        }
-        paginationScrollTimeoutRef.current = window.setTimeout(() => {
-          scrollWindowToPosition(targetTop);
-          paginationScrollTimeoutRef.current = null;
-        }, 120);
       });
       previousPageRef.current = safePage;
     }
@@ -1458,10 +1438,6 @@ function RequestResultsPage() {
       if (paginationScrollRafRef.current !== null) {
         window.cancelAnimationFrame(paginationScrollRafRef.current);
         paginationScrollRafRef.current = null;
-      }
-      if (paginationScrollTimeoutRef.current !== null) {
-        window.clearTimeout(paginationScrollTimeoutRef.current);
-        paginationScrollTimeoutRef.current = null;
       }
     };
   }, [safePage]);
