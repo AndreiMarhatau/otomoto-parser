@@ -1406,7 +1406,16 @@ function RequestResultsPage() {
       return;
     }
     if (previousPageRef.current !== safePage) {
-      listTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      window.requestAnimationFrame(() => {
+        const top = listTopRef.current?.getBoundingClientRect?.().top;
+        if (typeof top !== "number") {
+          return;
+        }
+        window.scrollTo({
+          top: Math.max(0, top + window.scrollY - 16),
+          behavior: "smooth",
+        });
+      });
       previousPageRef.current = safePage;
     }
   }, [safePage]);
@@ -1570,7 +1579,8 @@ function RequestResultsPage() {
                 ) : null}
               </div>
             </div>
-            <div ref={listTopRef} className="listing-grid">
+            <div ref={listTopRef} className="results-list-top" />
+            <div className="listing-grid">
               {currentItems.length === 0 ? <p className="muted">No listings in this category.</p> : null}
               {currentItems.map((item) => (
                 <ListingCard
