@@ -225,10 +225,12 @@ function IconButton({ title, onClick, href, disabled = false, tone = "default", 
   );
 }
 
-function CategoryPicker({ item, categories, busy, onChange, onCreateCategory, onOpenChange }) {
+function CategoryPicker({ item, categories, busy, onCommit, onCreateCategory, onOpenChange }) {
   const [open, setOpen] = React.useState(false);
+  const [draftKeys, setDraftKeys] = React.useState(item.savedCategoryKeys || []);
+  const [saving, setSaving] = React.useState(false);
   const containerRef = React.useRef(null);
-  const selectedKeys = new Set(item.savedCategoryKeys || []);
+  const selectedKeys = new Set(draftKeys);
   const selectedCount = categories.filter((category) => selectedKeys.has(category.key)).length;
 
   React.useEffect(() => {
@@ -237,26 +239,59 @@ function CategoryPicker({ item, categories, busy, onChange, onCreateCategory, on
 
   React.useEffect(() => {
     if (!open) {
+      setDraftKeys(item.savedCategoryKeys || []);
+    }
+  }, [item.savedCategoryKeys, open]);
+
+  function orderedKeys(keys) {
+    const selected = new Set(keys);
+    return categories.map((category) => category.key).filter((key) => selected.has(key));
+  }
+
+  async function closePicker() {
+    setOpen(false);
+    const nextKeys = orderedKeys(draftKeys);
+    const currentKeys = orderedKeys(item.savedCategoryKeys || []);
+    if (JSON.stringify(nextKeys) === JSON.stringify(currentKeys)) {
+      return;
+    }
+    setSaving(true);
+    try {
+      await onCommit(item, nextKeys);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  React.useEffect(() => {
+    if (!open) {
       return undefined;
     }
     function handlePointerDown(event) {
       if (!containerRef.current?.contains(event.target)) {
-        setOpen(false);
+        void closePicker();
       }
     }
     document.addEventListener("mousedown", handlePointerDown);
     return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, [open]);
+  }, [draftKeys, item, open]);
 
   function toggleCategory(categoryKey) {
-    const next = new Set(selectedKeys);
+    const next = new Set(draftKeys);
     if (next.has(categoryKey)) {
       next.delete(categoryKey);
     } else {
       next.add(categoryKey);
     }
-    const ordered = categories.map((category) => category.key).filter((key) => next.has(key));
-    onChange(item, ordered);
+    setDraftKeys(orderedKeys([...next]));
+  }
+
+  async function handleCreateCategory() {
+    const created = await onCreateCategory();
+    if (!created) {
+      return;
+    }
+    setDraftKeys((current) => [...new Set([...current, created.key])]);
   }
 
   return (
@@ -264,15 +299,20 @@ function CategoryPicker({ item, categories, busy, onChange, onCreateCategory, on
       className={open ? "category-picker open" : "category-picker"}
       ref={containerRef}
       onClick={(event) => {
-        event.preventDefault();
         event.stopPropagation();
       }}
     >
       <button
         type="button"
         className="listing-category-button chip-interactive"
-        onClick={() => setOpen((value) => !value)}
-        disabled={busy}
+        onClick={() => {
+          if (open) {
+            void closePicker();
+            return;
+          }
+          setOpen(true);
+        }}
+        disabled={busy || saving}
         title="Manage saved categories"
       >
         <IconTag />
@@ -287,7 +327,7 @@ function CategoryPicker({ item, categories, busy, onChange, onCreateCategory, on
                 <input
                   type="checkbox"
                   checked={selectedKeys.has(category.key)}
-                  disabled={busy}
+                  disabled={busy || saving}
                   onChange={() => toggleCategory(category.key)}
                 />
                 <span className="category-picker-option-label">
@@ -300,8 +340,8 @@ function CategoryPicker({ item, categories, busy, onChange, onCreateCategory, on
           <button
             type="button"
             className="category-picker-add"
-            disabled={busy}
-            onClick={() => onCreateCategory(item)}
+            disabled={busy || saving}
+            onClick={() => void handleCreateCategory()}
           >
             <IconPlus />
             <span>Add new</span>
@@ -1030,7 +1070,7 @@ function ListingCard({ item, assignableCategories, categoryBusy, onAssignCategor
               item={item}
               categories={assignableCategories}
               busy={categoryBusy}
-              onChange={onAssignCategories}
+              onCommit={onAssignCategories}
               onCreateCategory={onCreateCategory}
               onOpenChange={setCategoryPickerOpen}
             />
@@ -1122,7 +1162,7 @@ function RequestResultsPage() {
     return name;
   }, []);
 
-  const createCategory = React.useCallback(async (initialValue = "") => {
+  const submitCategoryCreation = React.useCallback(async (initialValue = "") => {
     const name = promptCategoryName(initialValue);
     if (name === null) {
       return null;
@@ -1134,32 +1174,48 @@ function RequestResultsPage() {
     return payload.item;
   }, [promptCategoryName, requestId]);
 
-  const createCategoryAndMaybeAssign = React.useCallback(async (item = null) => {
+  const createCategory = React.useCallback(async () => {
     try {
-      const created = await createCategory();
+      const created = await submitCategoryCreation();
       if (!created) {
-        return;
+        return null;
       }
-      if (item) {
-        setCategoryBusyByListing((current) => ({ ...current, [item.id]: true }));
-        const nextKeys = [...new Set([...(item.savedCategoryKeys || []), created.key])];
-        await api(`/api/requests/${requestId}/listings/${item.id}/categories`, {
-          method: "PUT",
-          body: JSON.stringify({ categoryIds: nextKeys }),
-        });
-        setCategoryBusyByListing((current) => ({ ...current, [item.id]: false }));
-      } else {
-        setActiveCategory(created.key);
-      }
-      bumpResultsReload();
+      setResults((current) => {
+        if (!current) {
+          return current;
+        }
+        return {
+          ...current,
+          categories: {
+            ...current.categories,
+            [created.key]: {
+              label: created.label,
+              count: 0,
+              kind: created.kind,
+              editable: created.editable,
+              deletable: created.deletable,
+            },
+          },
+          assignableCategories: [...(current.assignableCategories || []), created],
+        };
+      });
       setResultsError(null);
+      return created;
     } catch (error) {
-      if (item) {
-        setCategoryBusyByListing((current) => ({ ...current, [item.id]: false }));
-      }
       setResultsError(error.message);
+      return null;
     }
-  }, [bumpResultsReload, createCategory, requestId]);
+  }, [submitCategoryCreation]);
+
+  const createCategoryTab = React.useCallback(async () => {
+    const created = await createCategory();
+    if (!created) {
+      return;
+    }
+    setCurrentPage(1);
+    setActiveCategory(created.key);
+    bumpResultsReload();
+  }, [bumpResultsReload, createCategory]);
 
   const renameActiveCategory = React.useCallback(async () => {
     const activeMeta = results?.categories?.[activeCategory];
@@ -1485,7 +1541,7 @@ function RequestResultsPage() {
                 </button>
               ))}
               <div className="tab-row-actions">
-                <IconButton title="Add category" tone="secondary" onClick={() => createCategoryAndMaybeAssign()}>
+                <IconButton title="Add category" tone="secondary" onClick={() => void createCategoryTab()}>
                   <IconPlus />
                 </IconButton>
                 {categoryMap[activeCategory]?.editable ? (
@@ -1509,7 +1565,7 @@ function RequestResultsPage() {
                   assignableCategories={assignableCategories}
                   categoryBusy={Boolean(categoryBusyByListing[item.id])}
                   onAssignCategories={assignSavedCategories}
-                  onCreateCategory={createCategoryAndMaybeAssign}
+                  onCreateCategory={createCategory}
                   onOpenLocation={setLocationPreview}
                   onOpenReport={openVehicleReport}
                   distanceLabel={formatDistanceChip(item.location, geolocationState, locationCache[item.location])}
