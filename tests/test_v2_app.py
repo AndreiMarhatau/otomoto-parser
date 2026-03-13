@@ -13,6 +13,7 @@ from otomoto_parser.v2 import service as service_module
 from otomoto_parser.v2.app import create_app
 from otomoto_parser.v2.service import (
     CATEGORY_DATA_NOT_VERIFIED,
+    CATEGORY_FAVORITES,
     CATEGORY_IMPORTED_FROM_US,
     CATEGORY_PRICE_OUT_OF_RANGE,
     CATEGORY_TO_BE_CHECKED,
@@ -215,6 +216,59 @@ class FailOnSecondRunParserRunner(FakeParserRunner):
         if self.calls == 1:
             return super().__call__(*args, **kwargs)
         raise RuntimeError("simulated rerun failure")
+
+
+class FullRerunDropsListingRunner(FakeParserRunner):
+    def __init__(self) -> None:
+        super().__init__()
+        self.full_calls = 0
+
+    def __call__(self, start_url: str, output_path: Path, state_path: Path, *, run_mode: str, progress_callback=None, **kwargs: object) -> None:
+        if run_mode == RUN_MODE_FULL:
+            self.full_calls += 1
+            if self.full_calls > 1:
+                records = [record for record in _sample_records() if record["item_id"] != "4"]
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                lines = [json.dumps(record, ensure_ascii=True) for record in records]
+                output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+                state_path.write_text(json.dumps({"next_page": 2}), encoding="utf-8")
+                if progress_callback is not None:
+                    progress_callback({"event": "page_fetch_started", "page": 1, "pages_completed": 0, "results_written": 0})
+                    progress_callback(
+                        {
+                            "event": "page_fetch_finished",
+                            "page": 1,
+                            "written": len(lines),
+                            "state": {
+                                "start_url": start_url,
+                                "next_page": 2,
+                                "pages_completed": 1,
+                                "results_written": len(lines),
+                                "has_more": False,
+                            },
+                        }
+                    )
+                    progress_callback(
+                        {
+                            "event": "complete",
+                            "state": {
+                                "start_url": start_url,
+                                "next_page": 2,
+                                "pages_completed": 1,
+                                "results_written": len(lines),
+                                "has_more": False,
+                            },
+                        }
+                    )
+                return
+        return super().__call__(
+            start_url,
+            output_path,
+            state_path,
+            run_mode=run_mode,
+            progress_callback=progress_callback,
+            **kwargs,
+        )
 
 
 class FailingThenResumeParserRunner(FakeParserRunner):
@@ -772,6 +826,172 @@ def test_results_endpoint_returns_only_requested_page_for_selected_category(tmp_
             assert [item["id"] for item in page_last_payload["items"]] == ["extra-19"]
     finally:
         globals()["_sample_records"] = original_sample_records
+
+
+def test_saved_categories_can_be_created_assigned_renamed_deleted_and_survive_redo(tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        initial_results = client.get(f"/api/requests/{request_id}/results")
+        assert initial_results.status_code == 200
+        initial_payload = initial_results.json()
+        assert initial_payload["categories"][CATEGORY_FAVORITES] == {
+            "label": CATEGORY_FAVORITES,
+            "count": 0,
+            "kind": "saved",
+            "editable": False,
+            "deletable": False,
+        }
+        assert initial_payload["assignableCategories"][0]["key"] == CATEGORY_FAVORITES
+
+        category_response = client.post(
+            f"/api/requests/{request_id}/categories",
+            json={"name": "Weekend shortlist"},
+        )
+        assert category_response.status_code == 201
+        category_key = category_response.json()["item"]["key"]
+
+        assign_response = client.put(
+            f"/api/requests/{request_id}/listings/4/categories",
+            json={"categoryIds": [CATEGORY_FAVORITES, category_key]},
+        )
+        assert assign_response.status_code == 200
+        assert assign_response.json()["item"]["savedCategoryKeys"] == [CATEGORY_FAVORITES, category_key]
+
+        favorites_results = client.get(
+            f"/api/requests/{request_id}/results",
+            params={"category": CATEGORY_FAVORITES},
+        )
+        assert favorites_results.status_code == 200
+        favorites_payload = favorites_results.json()
+        assert favorites_payload["currentCategory"] == CATEGORY_FAVORITES
+        assert [item["id"] for item in favorites_payload["items"]] == ["4"]
+        assert favorites_payload["items"][0]["savedCategoryKeys"] == [CATEGORY_FAVORITES, category_key]
+
+        custom_results = client.get(
+            f"/api/requests/{request_id}/results",
+            params={"category": category_key},
+        )
+        assert custom_results.status_code == 200
+        assert custom_results.json()["categories"][category_key]["count"] == 1
+        assert [item["id"] for item in custom_results.json()["items"]] == ["4"]
+
+        rename_response = client.patch(
+            f"/api/requests/{request_id}/categories/{category_key}",
+            json={"name": "Family picks"},
+        )
+        assert rename_response.status_code == 200
+        assert rename_response.json()["item"]["label"] == "Family picks"
+
+        renamed_results = client.get(
+            f"/api/requests/{request_id}/results",
+            params={"category": category_key},
+        )
+        assert renamed_results.json()["categories"][category_key]["label"] == "Family picks"
+
+        redo_response = client.post(f"/api/requests/{request_id}/redo")
+        assert redo_response.status_code == 200
+        _wait_until_ready(client, request_id)
+
+        persisted_results = client.get(
+            f"/api/requests/{request_id}/results",
+            params={"category": category_key},
+        )
+        assert persisted_results.status_code == 200
+        assert [item["id"] for item in persisted_results.json()["items"]] == ["4"]
+
+        delete_response = client.delete(f"/api/requests/{request_id}/categories/{category_key}")
+        assert delete_response.status_code == 204
+
+        after_delete = client.get(f"/api/requests/{request_id}/results")
+        assert category_key not in after_delete.json()["categories"]
+        assert after_delete.json()["categories"][CATEGORY_FAVORITES]["count"] == 1
+
+
+def test_listing_category_assignment_waits_for_ready_results(tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        service.store.update_request(request_id, resultsReady=False, status="running")
+
+        response = client.put(
+            f"/api/requests/{request_id}/listings/4/categories",
+            json={"categoryIds": [CATEGORY_FAVORITES]},
+        )
+        assert response.status_code == 409
+        assert response.json()["detail"] == "Results are not ready yet."
+
+
+def test_rename_category_preserves_request_not_found(tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+
+    with TestClient(app) as client:
+        response = client.patch(
+            "/api/requests/missing-request/categories/custom:demo",
+            json={"name": "Renamed"},
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Request not found."
+
+
+def test_full_redo_removes_saved_category_assignments_for_missing_listings(tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FullRerunDropsListingRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        category_response = client.post(
+            f"/api/requests/{request_id}/categories",
+            json={"name": "Needs revisit"},
+        )
+        category_key = category_response.json()["item"]["key"]
+
+        assign_response = client.put(
+            f"/api/requests/{request_id}/listings/4/categories",
+            json={"categoryIds": [CATEGORY_FAVORITES, category_key]},
+        )
+        assert assign_response.status_code == 200
+
+        redo_response = client.post(f"/api/requests/{request_id}/redo")
+        assert redo_response.status_code == 200
+        _wait_until_ready(client, request_id)
+
+        favorites_results = client.get(
+            f"/api/requests/{request_id}/results",
+            params={"category": CATEGORY_FAVORITES},
+        )
+        assert favorites_results.status_code == 200
+        assert favorites_results.json()["categories"][CATEGORY_FAVORITES]["count"] == 0
+        assert favorites_results.json()["items"] == []
+
+        custom_results = client.get(
+            f"/api/requests/{request_id}/results",
+            params={"category": category_key},
+        )
+        assert custom_results.status_code == 200
+        assert custom_results.json()["categories"][category_key]["count"] == 0
+        assert custom_results.json()["items"] == []
 
 
 def test_vehicle_report_regenerate_overwrites_cache_and_survives_redo(monkeypatch, tmp_path: Path) -> None:

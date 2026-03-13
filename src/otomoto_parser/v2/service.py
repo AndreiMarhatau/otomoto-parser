@@ -20,12 +20,23 @@ CATEGORY_PRICE_OUT_OF_RANGE = "Price evaluation out of range"
 CATEGORY_DATA_NOT_VERIFIED = "Data not verified"
 CATEGORY_IMPORTED_FROM_US = "Imported from US"
 CATEGORY_TO_BE_CHECKED = "To be checked"
+CATEGORY_FAVORITES = "Favorites"
+
+SYSTEM_CATEGORY_ORDER = [
+    CATEGORY_PRICE_OUT_OF_RANGE,
+    CATEGORY_DATA_NOT_VERIFIED,
+    CATEGORY_IMPORTED_FROM_US,
+    CATEGORY_TO_BE_CHECKED,
+]
+ASSIGNABLE_CATEGORY_ORDER = [CATEGORY_FAVORITES]
 
 REQUEST_STATUS_PENDING = "pending"
 REQUEST_STATUS_RUNNING = "running"
 REQUEST_STATUS_CATEGORIZING = "categorizing"
 REQUEST_STATUS_READY = "ready"
 REQUEST_STATUS_FAILED = "failed"
+
+CUSTOM_CATEGORY_PREFIX = "custom:"
 
 ParserRunner = Callable[..., Any]
 
@@ -203,6 +214,7 @@ class RequestPaths:
     results_path: Path
     state_path: Path
     categorized_path: Path
+    saved_categories_path: Path
     excel_path: Path
     reports_dir: Path
 
@@ -304,6 +316,7 @@ class ParserAppService:
             results_path=request_dir / "results.jsonl",
             state_path=request_dir / "state.json",
             categorized_path=request_dir / "categorized.json",
+            saved_categories_path=request_dir / "saved-categories.json",
             excel_path=request_dir / "aggregations.xlsx",
             reports_dir=request_dir / "vehicle-reports",
         )
@@ -339,9 +352,11 @@ class ParserAppService:
             "resultsPath": str(paths.results_path),
             "statePath": str(paths.state_path),
             "categorizedPath": str(paths.categorized_path),
+            "savedCategoriesPath": str(paths.saved_categories_path),
             "excelPath": str(paths.excel_path),
         }
         self.store.create_request(request)
+        self._write_saved_categories(request_id, self._default_saved_categories())
         self.start_run(request_id, RUN_MODE_FULL)
         return self.get_request(request_id)
 
@@ -375,9 +390,12 @@ class ParserAppService:
         if not request["resultsReady"]:
             raise RuntimeError("Results are not ready yet.")
         payload = _read_json(Path(request["categorizedPath"]), {})
-        categories = payload.get("categories", {})
-        if not isinstance(categories, dict):
-            return {"requestId": request_id, "generatedAt": utc_now(), "totalCount": 0, "categories": {}, "items": [], "pagination": {"page": 1, "pageSize": page_size, "totalPages": 1, "totalItems": 0}, "currentCategory": category}
+        raw_categories = payload.get("categories", {})
+        if not isinstance(raw_categories, dict):
+            raw_categories = {}
+        saved_categories = self._read_saved_categories(request_id)
+        listing_index = self._build_listing_index(raw_categories)
+        categories = self._build_result_categories(raw_categories, saved_categories, listing_index)
 
         current_category = category if category in categories else next(iter(categories.keys()), None)
         if current_category is None:
@@ -386,6 +404,7 @@ class ParserAppService:
                 "generatedAt": payload.get("generatedAt") or utc_now(),
                 "totalCount": payload.get("totalCount", 0),
                 "categories": {},
+                "assignableCategories": self._serialize_assignable_categories(saved_categories),
                 "items": [],
                 "pagination": {"page": 1, "pageSize": page_size, "totalPages": 1, "totalItems": 0},
                 "currentCategory": None,
@@ -402,6 +421,7 @@ class ParserAppService:
         start_index = (safe_page - 1) * safe_page_size
         current_items = [dict(item) for item in all_items[start_index : start_index + safe_page_size] if isinstance(item, dict)]
         self._attach_report_cache_metadata(request_id, current_items)
+        self._attach_saved_category_metadata(request_id, current_items)
         return {
             "requestId": request_id,
             "generatedAt": payload.get("generatedAt") or utc_now(),
@@ -410,10 +430,14 @@ class ParserAppService:
                 name: {
                     "label": value.get("label", name),
                     "count": value.get("count", 0),
+                    "kind": value.get("kind", "system"),
+                    "editable": bool(value.get("editable")),
+                    "deletable": bool(value.get("deletable")),
                 }
                 for name, value in categories.items()
                 if isinstance(value, dict)
             },
+            "assignableCategories": self._serialize_assignable_categories(saved_categories),
             "currentCategory": current_category,
             "items": current_items,
             "pagination": {
@@ -454,6 +478,75 @@ class ParserAppService:
             self.store.delete_request(request_id)
         with self._lock:
             self._request_locks.pop(request_id, None)
+
+    def create_saved_category(self, request_id: str, name: str) -> dict[str, Any]:
+        with self._request_lock(request_id):
+            self.get_request(request_id)
+            cleaned = self._normalize_category_name(name)
+            state = self._read_saved_categories(request_id)
+            self._ensure_unique_saved_category_name(state, cleaned)
+            key = f"{CUSTOM_CATEGORY_PREFIX}{uuid.uuid4().hex[:10]}"
+            state["categories"].append({"key": key, "label": cleaned})
+            self._write_saved_categories(request_id, state)
+            return {"key": key, "label": cleaned, "editable": True, "deletable": True, "kind": "saved"}
+
+    def rename_saved_category(self, request_id: str, category_key: str, name: str) -> dict[str, Any]:
+        with self._request_lock(request_id):
+            self.get_request(request_id)
+            if not category_key.startswith(CUSTOM_CATEGORY_PREFIX):
+                raise RuntimeError("This category cannot be renamed.")
+            cleaned = self._normalize_category_name(name)
+            state = self._read_saved_categories(request_id)
+            self._ensure_unique_saved_category_name(state, cleaned, ignore_key=category_key)
+            category = self._find_saved_category(state, category_key)
+            if category is None:
+                raise KeyError(category_key)
+            category["label"] = cleaned
+            self._write_saved_categories(request_id, state)
+            return {"key": category_key, "label": cleaned, "editable": True, "deletable": True, "kind": "saved"}
+
+    def delete_saved_category(self, request_id: str, category_key: str) -> None:
+        with self._request_lock(request_id):
+            self.get_request(request_id)
+            if not category_key.startswith(CUSTOM_CATEGORY_PREFIX):
+                raise RuntimeError("This category cannot be removed.")
+            state = self._read_saved_categories(request_id)
+            categories = [category for category in state["categories"] if category.get("key") != category_key]
+            if len(categories) == len(state["categories"]):
+                raise KeyError(category_key)
+            state["categories"] = categories
+            state["assignments"] = {
+                listing_id: [key for key in category_keys if key != category_key]
+                for listing_id, category_keys in state["assignments"].items()
+            }
+            self._write_saved_categories(request_id, state)
+
+    def update_listing_saved_categories(self, request_id: str, listing_id: str, category_keys: list[str]) -> dict[str, Any]:
+        with self._request_lock(request_id):
+            self.get_request(request_id)
+            canonical_listing_id = self._resolve_listing_for_report(request_id, listing_id)["id"]
+            state = self._read_saved_categories(request_id)
+            assignable_keys = {category["key"] for category in self._assignable_categories(state)}
+            cleaned = []
+            seen: set[str] = set()
+            for key in category_keys:
+                if not isinstance(key, str) or key not in assignable_keys or key in seen:
+                    continue
+                cleaned.append(key)
+                seen.add(key)
+            if len(cleaned) != len([key for key in category_keys if isinstance(key, str)]):
+                invalid = [key for key in category_keys if not isinstance(key, str) or key not in assignable_keys]
+                if invalid:
+                    raise KeyError(str(invalid[0]))
+            if cleaned:
+                state["assignments"][canonical_listing_id] = cleaned
+            else:
+                state["assignments"].pop(canonical_listing_id, None)
+            self._write_saved_categories(request_id, state)
+            return {
+                "listingId": canonical_listing_id,
+                "savedCategoryKeys": cleaned,
+            }
 
     def get_vehicle_report(self, request_id: str, listing_id: str, *, force_refresh: bool = False) -> dict[str, Any]:
         with self._request_lock(request_id):
@@ -498,6 +591,18 @@ class ParserAppService:
                 "cached": report is not None,
                 "retrievedAt": report.get("retrievedAt") if report else None,
             }
+
+    def _attach_saved_category_metadata(self, request_id: str, items: list[dict[str, Any]]) -> None:
+        assignments = self._read_saved_categories(request_id).get("assignments", {})
+        if not isinstance(assignments, dict):
+            assignments = {}
+        for item in items:
+            if not isinstance(item, dict) or item.get("id") is None:
+                continue
+            category_keys = assignments.get(str(item["id"]), [])
+            if not isinstance(category_keys, list):
+                category_keys = []
+            item["savedCategoryKeys"] = [key for key in category_keys if isinstance(key, str)]
 
     def _find_listing_record(self, request_id: str, listing_id: str) -> dict[str, Any]:
         request = self.get_request(request_id)
@@ -578,6 +683,140 @@ class ParserAppService:
                 self._request_locks[request_id] = lock
             return lock
 
+    def _default_saved_categories(self) -> dict[str, Any]:
+        return {
+            "categories": [],
+            "assignments": {},
+        }
+
+    def _read_saved_categories(self, request_id: str) -> dict[str, Any]:
+        paths = self.request_paths(request_id)
+        state = _read_json(paths.saved_categories_path, self._default_saved_categories())
+        categories = state.get("categories", [])
+        assignments = state.get("assignments", {})
+        if not isinstance(categories, list):
+            categories = []
+        if not isinstance(assignments, dict):
+            assignments = {}
+        normalized_categories = []
+        for category in categories:
+            if not isinstance(category, dict):
+                continue
+            key = category.get("key")
+            label = category.get("label")
+            if isinstance(key, str) and isinstance(label, str) and key.startswith(CUSTOM_CATEGORY_PREFIX) and label.strip():
+                normalized_categories.append({"key": key, "label": label.strip()})
+        normalized_assignments = {
+            str(listing_id): [key for key in category_keys if isinstance(key, str)]
+            for listing_id, category_keys in assignments.items()
+            if isinstance(category_keys, list)
+        }
+        return {
+            "categories": normalized_categories,
+            "assignments": normalized_assignments,
+        }
+
+    def _write_saved_categories(self, request_id: str, state: dict[str, Any]) -> None:
+        self.get_request(request_id)
+        paths = self.request_paths(request_id)
+        _write_json(paths.saved_categories_path, state)
+
+    def _normalize_category_name(self, name: str) -> str:
+        cleaned = " ".join(name.split())
+        if not cleaned:
+            raise RuntimeError("Category name cannot be empty.")
+        return cleaned
+
+    def _ensure_unique_saved_category_name(self, state: dict[str, Any], name: str, ignore_key: str | None = None) -> None:
+        lowered = name.casefold()
+        for category in self._assignable_categories(state):
+            key = category["key"]
+            if ignore_key is not None and key == ignore_key:
+                continue
+            if category["label"].casefold() == lowered:
+                raise RuntimeError("A category with this name already exists.")
+
+    def _find_saved_category(self, state: dict[str, Any], category_key: str) -> dict[str, Any] | None:
+        for category in state.get("categories", []):
+            if isinstance(category, dict) and category.get("key") == category_key:
+                return category
+        return None
+
+    def _assignable_categories(self, state: dict[str, Any]) -> list[dict[str, Any]]:
+        categories = [{"key": CATEGORY_FAVORITES, "label": CATEGORY_FAVORITES}]
+        for category in state.get("categories", []):
+            if isinstance(category, dict):
+                categories.append(category)
+        return categories
+
+    def _serialize_assignable_categories(self, state: dict[str, Any]) -> list[dict[str, Any]]:
+        return [
+            {
+                "key": category["key"],
+                "label": category["label"],
+                "kind": "saved",
+                "editable": category["key"].startswith(CUSTOM_CATEGORY_PREFIX),
+                "deletable": category["key"].startswith(CUSTOM_CATEGORY_PREFIX),
+            }
+            for category in self._assignable_categories(state)
+        ]
+
+    def _build_listing_index(self, raw_categories: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        listing_index: dict[str, dict[str, Any]] = {}
+        for category_name in SYSTEM_CATEGORY_ORDER:
+            category = raw_categories.get(category_name, {})
+            if not isinstance(category, dict):
+                continue
+            for item in category.get("items", []):
+                if not isinstance(item, dict):
+                    continue
+                listing_id = item.get("id")
+                if listing_id is None:
+                    continue
+                listing_index[str(listing_id)] = dict(item)
+        return listing_index
+
+    def _build_result_categories(
+        self,
+        raw_categories: dict[str, Any],
+        saved_categories: dict[str, Any],
+        listing_index: dict[str, dict[str, Any]],
+    ) -> dict[str, dict[str, Any]]:
+        categories: dict[str, dict[str, Any]] = {}
+        for category_name in SYSTEM_CATEGORY_ORDER:
+            category = raw_categories.get(category_name, {})
+            items = category.get("items", []) if isinstance(category, dict) else []
+            categories[category_name] = {
+                "label": category_name,
+                "count": len(items) if isinstance(items, list) else 0,
+                "items": items if isinstance(items, list) else [],
+                "kind": "system",
+                "editable": False,
+                "deletable": False,
+            }
+
+        assignments = saved_categories.get("assignments", {})
+        if not isinstance(assignments, dict):
+            assignments = {}
+        for category in self._assignable_categories(saved_categories):
+            category_key = category["key"]
+            items = []
+            for listing_id, category_keys in assignments.items():
+                if category_key not in category_keys:
+                    continue
+                item = listing_index.get(str(listing_id))
+                if item is not None:
+                    items.append(dict(item))
+            categories[category_key] = {
+                "label": category["label"],
+                "count": len(items),
+                "items": items,
+                "kind": "saved",
+                "editable": category_key.startswith(CUSTOM_CATEGORY_PREFIX),
+                "deletable": category_key.startswith(CUSTOM_CATEGORY_PREFIX),
+            }
+        return categories
+
     def _build_report_summary(self, history: VehicleHistoryReport) -> dict[str, Any]:
         technical_data = history.technical_data.get("technicalData", {})
         basic_data = technical_data.get("basicData", {}) if isinstance(technical_data, dict) else {}
@@ -602,6 +841,15 @@ class ParserAppService:
             "autodnaUnavailable": autodna_unavailable,
             "carfaxUnavailable": carfax_unavailable,
         }
+
+    def _prune_saved_category_assignments(self, request_id: str, valid_listing_ids: set[str]) -> None:
+        state = self._read_saved_categories(request_id)
+        state["assignments"] = {
+            listing_id: category_keys
+            for listing_id, category_keys in state.get("assignments", {}).items()
+            if listing_id in valid_listing_ids
+        }
+        self._write_saved_categories(request_id, state)
 
     def _update_progress(self, request_id: str, payload: dict[str, Any]) -> None:
         event = payload.get("event")
@@ -664,6 +912,16 @@ class ParserAppService:
 
             generate_aggregations(paths.results_path, paths.excel_path)
             categorized = build_categorized_payload(paths.results_path)
+            if mode == RUN_MODE_FULL:
+                valid_listing_ids = {
+                    str(item.get("id"))
+                    for category in categorized.get("categories", {}).values()
+                    if isinstance(category, dict)
+                    for item in category.get("items", [])
+                    if isinstance(item, dict) and item.get("id") is not None
+                }
+                with self._request_lock(request_id):
+                    self._prune_saved_category_assignments(request_id, valid_listing_ids)
             _write_json(paths.categorized_path, categorized)
             self.store.update_request(
                 request_id,

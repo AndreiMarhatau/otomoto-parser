@@ -3,7 +3,7 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter, Link, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import "./styles.css";
 
-const categoryOrder = [
+const systemCategoryOrder = [
   "Price evaluation out of range",
   "Data not verified",
   "Imported from US",
@@ -156,6 +156,40 @@ function IconChevronRight() {
   );
 }
 
+function IconPlus() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconEdit() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 20l4.5-1 9-9-3.5-3.5-9 9L4 20z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M12.5 6.5L16 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconTag() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M11 4H5v6l8 8 6-6-8-8z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <circle cx="8" cy="8" r="1.2" fill="currentColor" />
+    </svg>
+  );
+}
+
+function IconStar() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 3.8l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.2-4.1 5.8-.8L12 3.8z" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function buildPageItems(currentPage, totalPages) {
   if (totalPages <= 7) {
     return Array.from({ length: totalPages }, (_, index) => index + 1);
@@ -188,6 +222,89 @@ function IconButton({ title, onClick, href, disabled = false, tone = "default", 
     <button type="button" className={className} title={title} aria-label={title} onClick={onClick} disabled={disabled}>
       {children}
     </button>
+  );
+}
+
+function CategoryPicker({ item, categories, busy, onChange, onCreateCategory }) {
+  const [open, setOpen] = React.useState(false);
+  const containerRef = React.useRef(null);
+  const selectedKeys = new Set(item.savedCategoryKeys || []);
+  const selectedCount = categories.filter((category) => selectedKeys.has(category.key)).length;
+
+  React.useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+    function handlePointerDown(event) {
+      if (!containerRef.current?.contains(event.target)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [open]);
+
+  function toggleCategory(categoryKey) {
+    const next = new Set(selectedKeys);
+    if (next.has(categoryKey)) {
+      next.delete(categoryKey);
+    } else {
+      next.add(categoryKey);
+    }
+    const ordered = categories.map((category) => category.key).filter((key) => next.has(key));
+    onChange(item, ordered);
+  }
+
+  return (
+    <div
+      className="category-picker"
+      ref={containerRef}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+    >
+      <button
+        type="button"
+        className="listing-category-button chip-interactive"
+        onClick={() => setOpen((value) => !value)}
+        disabled={busy}
+        title="Manage saved categories"
+      >
+        <IconTag />
+        <span>Save</span>
+        {selectedCount > 0 ? <span className="listing-category-count">{selectedCount}</span> : null}
+      </button>
+      {open ? (
+        <div className="category-picker-menu">
+          <div className="category-picker-list">
+            {categories.map((category) => (
+              <label key={category.key} className="category-picker-option">
+                <input
+                  type="checkbox"
+                  checked={selectedKeys.has(category.key)}
+                  disabled={busy}
+                  onChange={() => toggleCategory(category.key)}
+                />
+                <span className="category-picker-option-label">
+                  {category.key === "Favorites" ? <IconStar /> : <IconTag />}
+                  <span>{category.label}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="category-picker-add"
+            disabled={busy}
+            onClick={() => onCreateCategory(item)}
+          >
+            <IconPlus />
+            <span>Add new</span>
+          </button>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -867,7 +984,7 @@ function VehicleReportModal({ state, onClose, onRegenerate }) {
   );
 }
 
-function ListingCard({ item, onOpenLocation, onOpenReport, distanceLabel }) {
+function ListingCard({ item, assignableCategories, categoryBusy, onAssignCategories, onCreateCategory, onOpenLocation, onOpenReport, distanceLabel }) {
   const createdAt = item.createdAt ? new Date(item.createdAt).toLocaleString() : "—";
   const reportDisabled = item.dataVerified !== true && item.vehicleReport?.cached !== true;
   const specs = [
@@ -904,6 +1021,13 @@ function ListingCard({ item, onOpenLocation, onOpenReport, distanceLabel }) {
           </div>
           <p className="muted">{item.shortDescription || "No short description."}</p>
           <div className="listing-action-row">
+            <CategoryPicker
+              item={item}
+              categories={assignableCategories}
+              busy={categoryBusy}
+              onChange={onAssignCategories}
+              onCreateCategory={onCreateCategory}
+            />
             <button
               type="button"
               className="listing-report-button chip-interactive"
@@ -963,19 +1087,131 @@ function RequestResultsPage() {
   const request = requestData?.item;
   const [results, setResults] = React.useState(null);
   const [resultsError, setResultsError] = React.useState(null);
-  const [activeCategory, setActiveCategory] = React.useState(categoryOrder[0]);
+  const [activeCategory, setActiveCategory] = React.useState(systemCategoryOrder[0]);
   const [pageSize, setPageSize] = React.useState(pageSizeOptions[0]);
   const [currentPage, setCurrentPage] = React.useState(1);
   const [locationPreview, setLocationPreview] = React.useState(null);
   const [vehicleReportState, setVehicleReportState] = React.useState(null);
   const [geolocationState, setGeolocationState] = React.useState({ status: "idle", coords: null });
   const [locationCache, setLocationCache] = React.useState({});
+  const [reloadToken, setReloadToken] = React.useState(0);
+  const [categoryBusyByListing, setCategoryBusyByListing] = React.useState({});
   const vehicleReportRequestRef = React.useRef(0);
 
   React.useEffect(() => {
     setPageSize(pageSizeOptions[0]);
     setCurrentPage(1);
+    setReloadToken(0);
   }, [requestId]);
+
+  const bumpResultsReload = React.useCallback(() => {
+    setReloadToken((value) => value + 1);
+  }, []);
+
+  const promptCategoryName = React.useCallback((initialValue = "") => {
+    const name = window.prompt("Category name", initialValue);
+    if (name === null) {
+      return null;
+    }
+    return name;
+  }, []);
+
+  const createCategory = React.useCallback(async (initialValue = "") => {
+    const name = promptCategoryName(initialValue);
+    if (name === null) {
+      return null;
+    }
+    const payload = await api(`/api/requests/${requestId}/categories`, {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+    return payload.item;
+  }, [promptCategoryName, requestId]);
+
+  const createCategoryAndMaybeAssign = React.useCallback(async (item = null) => {
+    try {
+      const created = await createCategory();
+      if (!created) {
+        return;
+      }
+      if (item) {
+        setCategoryBusyByListing((current) => ({ ...current, [item.id]: true }));
+        const nextKeys = [...new Set([...(item.savedCategoryKeys || []), created.key])];
+        await api(`/api/requests/${requestId}/listings/${item.id}/categories`, {
+          method: "PUT",
+          body: JSON.stringify({ categoryIds: nextKeys }),
+        });
+        setCategoryBusyByListing((current) => ({ ...current, [item.id]: false }));
+      } else {
+        setActiveCategory(created.key);
+      }
+      bumpResultsReload();
+      setResultsError(null);
+    } catch (error) {
+      if (item) {
+        setCategoryBusyByListing((current) => ({ ...current, [item.id]: false }));
+      }
+      setResultsError(error.message);
+    }
+  }, [bumpResultsReload, createCategory, requestId]);
+
+  const renameActiveCategory = React.useCallback(async () => {
+    const activeMeta = results?.categories?.[activeCategory];
+    if (!activeMeta?.editable) {
+      return;
+    }
+    const name = promptCategoryName(activeMeta.label);
+    if (name === null) {
+      return;
+    }
+    try {
+      await api(`/api/requests/${requestId}/categories/${encodeURIComponent(activeCategory)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      });
+      bumpResultsReload();
+      setResultsError(null);
+    } catch (error) {
+      setResultsError(error.message);
+    }
+  }, [activeCategory, bumpResultsReload, promptCategoryName, requestId, results]);
+
+  const deleteActiveCategory = React.useCallback(async () => {
+    const activeMeta = results?.categories?.[activeCategory];
+    if (!activeMeta?.deletable) {
+      return;
+    }
+    if (!window.confirm(`Delete category "${activeMeta.label}"?`)) {
+      return;
+    }
+    try {
+      await api(`/api/requests/${requestId}/categories/${encodeURIComponent(activeCategory)}`, {
+        method: "DELETE",
+      });
+      setActiveCategory(systemCategoryOrder[0]);
+      setCurrentPage(1);
+      bumpResultsReload();
+      setResultsError(null);
+    } catch (error) {
+      setResultsError(error.message);
+    }
+  }, [activeCategory, bumpResultsReload, requestId, results]);
+
+  const assignSavedCategories = React.useCallback(async (item, categoryKeys) => {
+    setCategoryBusyByListing((current) => ({ ...current, [item.id]: true }));
+    try {
+      await api(`/api/requests/${requestId}/listings/${item.id}/categories`, {
+        method: "PUT",
+        body: JSON.stringify({ categoryIds: categoryKeys }),
+      });
+      setResultsError(null);
+      bumpResultsReload();
+    } catch (error) {
+      setResultsError(error.message);
+    } finally {
+      setCategoryBusyByListing((current) => ({ ...current, [item.id]: false }));
+    }
+  }, [bumpResultsReload, requestId]);
 
   const openVehicleReport = React.useCallback(async (item) => {
     const requestToken = vehicleReportRequestRef.current + 1;
@@ -1083,9 +1319,11 @@ function RequestResultsPage() {
     return () => {
       active = false;
     };
-  }, [activeCategory, currentPage, pageSize, request, requestId]);
+  }, [activeCategory, currentPage, pageSize, reloadToken, request, requestId]);
 
   const categoryMap = results?.categories || {};
+  const categoryEntries = Object.entries(categoryMap);
+  const assignableCategories = results?.assignableCategories || [];
   const currentItems = results?.items || [];
   const totalPages = results?.pagination?.totalPages || 1;
   const safePage = results?.pagination?.page || 1;
@@ -1226,19 +1464,35 @@ function RequestResultsPage() {
               </div>
             </div>
             <div className="tab-row">
-              {categoryOrder.map((category) => (
+              {categoryEntries.map(([categoryKey, category]) => (
                 <button
-                  key={category}
-                  className={category === activeCategory ? "tab active" : "tab"}
+                  key={categoryKey}
+                  className={categoryKey === activeCategory ? "tab active" : "tab"}
                   onClick={() => {
                     setCurrentPage(1);
-                    setActiveCategory(category);
+                    setActiveCategory(categoryKey);
                   }}
                 >
-                  {category}
-                  <span>{categoryMap[category]?.count || 0}</span>
+                  {category.kind === "saved" && category.label === "Favorites" ? <IconStar /> : null}
+                  {category.label}
+                  <span>{category.count || 0}</span>
                 </button>
               ))}
+              <div className="tab-row-actions">
+                <IconButton title="Add category" tone="secondary" onClick={() => createCategoryAndMaybeAssign()}>
+                  <IconPlus />
+                </IconButton>
+                {categoryMap[activeCategory]?.editable ? (
+                  <IconButton title="Rename category" tone="secondary" onClick={renameActiveCategory}>
+                    <IconEdit />
+                  </IconButton>
+                ) : null}
+                {categoryMap[activeCategory]?.deletable ? (
+                  <IconButton title="Delete category" tone="danger" onClick={deleteActiveCategory}>
+                    <IconTrash />
+                  </IconButton>
+                ) : null}
+              </div>
             </div>
             <div className="listing-grid">
               {currentItems.length === 0 ? <p className="muted">No listings in this category.</p> : null}
@@ -1246,6 +1500,10 @@ function RequestResultsPage() {
                 <ListingCard
                   key={item.id}
                   item={item}
+                  assignableCategories={assignableCategories}
+                  categoryBusy={Boolean(categoryBusyByListing[item.id])}
+                  onAssignCategories={assignSavedCategories}
+                  onCreateCategory={createCategoryAndMaybeAssign}
                   onOpenLocation={setLocationPreview}
                   onOpenReport={openVehicleReport}
                   distanceLabel={formatDistanceChip(item.location, geolocationState, locationCache[item.location])}
