@@ -140,6 +140,40 @@ function IconCheckBadge() {
   );
 }
 
+function IconChevronLeft() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M14.5 6.5L9 12l5.5 5.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function IconChevronRight() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M9.5 6.5L15 12l-5.5 5.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function buildPageItems(currentPage, totalPages) {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+
+  const pages = new Set([1, totalPages, currentPage - 1, currentPage, currentPage + 1]);
+  const normalized = [...pages].filter((page) => page >= 1 && page <= totalPages).sort((a, b) => a - b);
+  const items = [];
+  for (const page of normalized) {
+    const previous = items[items.length - 1];
+    if (typeof previous === "number" && page - previous > 1) {
+      items.push("ellipsis");
+    }
+    items.push(page);
+  }
+  return items;
+}
+
 function IconButton({ title, onClick, href, disabled = false, tone = "default", children }) {
   const className = `icon-button icon-button-${tone}${disabled ? " icon-button-disabled" : ""}`;
   if (href) {
@@ -957,23 +991,15 @@ function RequestResultsPage() {
         if (!current) {
           return current;
         }
-        const categories = Object.fromEntries(
-          Object.entries(current.categories || {}).map(([category, value]) => [
-            category,
-            {
-              ...value,
-              items: (value.items || []).map((candidate) =>
-                candidate.id === item.id
-                  ? {
-                      ...candidate,
-                      vehicleReport: { cached: true, retrievedAt: payload.item.retrievedAt },
-                    }
-                  : candidate,
-              ),
-            },
-          ]),
+        const items = (current.items || []).map((candidate) =>
+          candidate.id === item.id
+            ? {
+                ...candidate,
+                vehicleReport: { cached: true, retrievedAt: payload.item.retrievedAt },
+              }
+            : candidate,
         );
-        return { ...current, categories };
+        return { ...current, items };
       });
     } catch (error) {
       if (vehicleReportRequestRef.current !== requestToken) {
@@ -1001,23 +1027,15 @@ function RequestResultsPage() {
         if (!current) {
           return current;
         }
-        const categories = Object.fromEntries(
-          Object.entries(current.categories || {}).map(([category, value]) => [
-            category,
-            {
-              ...value,
-              items: (value.items || []).map((candidate) =>
-                candidate.id === item.id
-                  ? {
-                      ...candidate,
-                      vehicleReport: { cached: true, retrievedAt: payload.item.retrievedAt },
-                    }
-                  : candidate,
-              ),
-            },
-          ]),
+        const items = (current.items || []).map((candidate) =>
+          candidate.id === item.id
+            ? {
+                ...candidate,
+                vehicleReport: { cached: true, retrievedAt: payload.item.retrievedAt },
+              }
+            : candidate,
         );
-        return { ...current, categories };
+        return { ...current, items };
       });
     } catch (error) {
       if (vehicleReportRequestRef.current !== requestToken) {
@@ -1032,10 +1050,18 @@ function RequestResultsPage() {
 
     async function loadResults() {
       try {
-        const payload = await api(`/api/requests/${requestId}/results`);
+        const params = new URLSearchParams({
+          category: activeCategory,
+          page: String(currentPage),
+          page_size: String(pageSize),
+        });
+        const payload = await api(`/api/requests/${requestId}/results?${params.toString()}`);
         if (active) {
           setResults(payload);
           setResultsError(null);
+          if (payload.currentCategory && payload.currentCategory !== activeCategory) {
+            setActiveCategory(payload.currentCategory);
+          }
         }
       } catch (error) {
         if (active) {
@@ -1057,16 +1083,13 @@ function RequestResultsPage() {
     return () => {
       active = false;
     };
-  }, [request, requestId]);
+  }, [activeCategory, currentPage, pageSize, request, requestId]);
 
   const categoryMap = results?.categories || {};
-  const currentItems = categoryMap[activeCategory]?.items || [];
-  const totalPages = Math.max(1, Math.ceil(currentItems.length / pageSize));
-  const safePage = Math.min(currentPage, totalPages);
-  const visibleItems = currentItems.slice((safePage - 1) * pageSize, safePage * pageSize);
-  const pageStart = Math.max(1, safePage - 2);
-  const pageEnd = Math.min(totalPages, pageStart + 4);
-  const pageNumbers = Array.from({ length: pageEnd - pageStart + 1 }, (_, index) => pageStart + index);
+  const currentItems = results?.items || [];
+  const totalPages = results?.pagination?.totalPages || 1;
+  const safePage = results?.pagination?.page || 1;
+  const pageNumbers = buildPageItems(safePage, totalPages);
 
   React.useEffect(() => {
     if (currentPage > totalPages) {
@@ -1109,7 +1132,7 @@ function RequestResultsPage() {
       return;
     }
 
-    const uniqueLocations = [...new Set(visibleItems.map((item) => item.location).filter(Boolean))];
+    const uniqueLocations = [...new Set(currentItems.map((item) => item.location).filter(Boolean))];
     const now = Date.now();
     const missingLocations = uniqueLocations.filter((location) => {
       const entry = locationCache[location];
@@ -1155,7 +1178,7 @@ function RequestResultsPage() {
           ),
         }));
       });
-  }, [visibleItems, geolocationState.coords, locationCache]);
+  }, [currentItems, geolocationState.coords, locationCache]);
 
   return (
     <Shell title="Categorized results">
@@ -1200,29 +1223,6 @@ function RequestResultsPage() {
                     ))}
                   </select>
                 </label>
-                <div className="pagination">
-                  <button type="button" className="pagination-button" disabled={safePage === 1} onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}>
-                    Prev
-                  </button>
-                  {pageNumbers.map((page) => (
-                    <button
-                      key={page}
-                      type="button"
-                      className={page === safePage ? "pagination-button active" : "pagination-button"}
-                      onClick={() => setCurrentPage(page)}
-                    >
-                      {page}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    className="pagination-button"
-                    disabled={safePage === totalPages}
-                    onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
-                  >
-                    Next
-                  </button>
-                </div>
               </div>
             </div>
             <div className="tab-row">
@@ -1242,7 +1242,7 @@ function RequestResultsPage() {
             </div>
             <div className="listing-grid">
               {currentItems.length === 0 ? <p className="muted">No listings in this category.</p> : null}
-              {visibleItems.map((item) => (
+              {currentItems.map((item) => (
                 <ListingCard
                   key={item.id}
                   item={item}
@@ -1254,7 +1254,45 @@ function RequestResultsPage() {
             </div>
             {currentItems.length > 0 ? (
               <div className="results-footer">
-                <p className="muted">{`Showing ${Math.min(currentItems.length, (safePage - 1) * pageSize + 1)}-${Math.min(currentItems.length, safePage * pageSize)} of ${currentItems.length}`}</p>
+                <div className="pagination">
+                  <button
+                    type="button"
+                    className="pagination-button pagination-button-icon"
+                    disabled={safePage === 1}
+                    onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                    aria-label="Previous page"
+                    title="Previous page"
+                  >
+                    <IconChevronLeft />
+                  </button>
+                  {pageNumbers.map((page, index) =>
+                    page === "ellipsis" ? (
+                      <span key={`ellipsis-${index}`} className="pagination-ellipsis">
+                        …
+                      </span>
+                    ) : (
+                      <button
+                        key={page}
+                        type="button"
+                        className={page === safePage ? "pagination-button active" : "pagination-button"}
+                        onClick={() => setCurrentPage(page)}
+                      >
+                        {page}
+                      </button>
+                    ),
+                  )}
+                  <button
+                    type="button"
+                    className="pagination-button pagination-button-icon"
+                    disabled={safePage === totalPages}
+                    onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                    aria-label="Next page"
+                    title="Next page"
+                  >
+                    <IconChevronRight />
+                  </button>
+                </div>
+                <p className="muted">{`Showing ${Math.min(results.pagination.totalItems, (safePage - 1) * pageSize + 1)}-${Math.min(results.pagination.totalItems, safePage * pageSize)} of ${results.pagination.totalItems}`}</p>
               </div>
             ) : null}
           </>

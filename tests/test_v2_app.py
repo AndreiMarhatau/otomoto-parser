@@ -699,10 +699,79 @@ def test_vehicle_report_endpoint_fetches_and_caches_report(monkeypatch, tmp_path
         assert len(identity_calls) == 1
         assert len(history_calls) == 1
 
-        results_response = client.get(f"/api/requests/{request_id}/results")
-        item = results_response.json()["categories"][CATEGORY_TO_BE_CHECKED]["items"][0]
+        results_response = client.get(
+            f"/api/requests/{request_id}/results",
+            params={"category": CATEGORY_TO_BE_CHECKED},
+        )
+        payload = results_response.json()
+        assert payload["currentCategory"] == CATEGORY_TO_BE_CHECKED
+        item = payload["items"][0]
         assert item["vehicleReport"]["cached"] is True
         assert item["vehicleReport"]["retrievedAt"]
+
+
+def test_results_endpoint_returns_only_requested_page_for_selected_category(tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+
+    extra_records = [
+        _record(
+            f"extra-{index}",
+            price_evaluation={"indicator": "IN"},
+            cepik_verified=True,
+            country_origin="pl",
+            title=f"Extra {index}",
+        )
+        for index in range(20)
+    ]
+
+    original_sample_records = globals()["_sample_records"]
+
+    def sample_records_with_extras() -> list[dict[str, Any]]:
+        return original_sample_records() + extra_records
+
+    globals()["_sample_records"] = sample_records_with_extras
+    try:
+        with TestClient(app) as client:
+            create_response = client.post(
+                "/api/requests",
+                json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+            )
+            request_id = create_response.json()["item"]["id"]
+            _wait_until_ready(client, request_id)
+
+            page_one = client.get(
+                f"/api/requests/{request_id}/results",
+                params={"category": CATEGORY_TO_BE_CHECKED, "page": 1, "page_size": 5},
+            )
+            assert page_one.status_code == 200
+            page_one_payload = page_one.json()
+            assert page_one_payload["currentCategory"] == CATEGORY_TO_BE_CHECKED
+            assert page_one_payload["pagination"] == {
+                "page": 1,
+                "pageSize": 5,
+                "totalPages": 5,
+                "totalItems": 21,
+            }
+            assert len(page_one_payload["items"]) == 5
+            assert [item["id"] for item in page_one_payload["items"]] == ["4", "extra-0", "extra-1", "extra-2", "extra-3"]
+            assert "items" not in page_one_payload["categories"][CATEGORY_TO_BE_CHECKED]
+
+            page_last = client.get(
+                f"/api/requests/{request_id}/results",
+                params={"category": CATEGORY_TO_BE_CHECKED, "page": 99, "page_size": 5},
+            )
+            assert page_last.status_code == 200
+            page_last_payload = page_last.json()
+            assert page_last_payload["pagination"] == {
+                "page": 5,
+                "pageSize": 5,
+                "totalPages": 5,
+                "totalItems": 21,
+            }
+            assert [item["id"] for item in page_last_payload["items"]] == ["extra-19"]
+    finally:
+        globals()["_sample_records"] = original_sample_records
 
 
 def test_vehicle_report_regenerate_overwrites_cache_and_survives_redo(monkeypatch, tmp_path: Path) -> None:

@@ -134,14 +134,19 @@ def create_app(
         return {"item": request}
 
     @app.get("/api/requests/{request_id}/results")
-    def request_results_endpoint(request_id: str) -> dict[str, Any]:
+    def request_results_endpoint(
+        request_id: str,
+        category: str | None = None,
+        page: int = 1,
+        page_size: int = 12,
+    ) -> dict[str, Any]:
         try:
             request = _service().get_request(request_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="Request not found.") from exc
         if not request["resultsReady"]:
             raise HTTPException(status_code=409, detail="Results are not ready yet.")
-        return _service().get_results(request_id)
+        return _service().get_results(request_id, category=category, page=page, page_size=page_size)
 
     @app.get("/api/requests/{request_id}/listings/{listing_id}/vehicle-report")
     def request_vehicle_report_endpoint(request_id: str, listing_id: str) -> dict[str, Any]:
