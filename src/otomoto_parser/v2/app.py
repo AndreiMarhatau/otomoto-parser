@@ -23,6 +23,14 @@ class CreateRequestPayload(BaseModel):
     url: HttpUrl
 
 
+class CategoryPayload(BaseModel):
+    name: str
+
+
+class ListingCategoriesPayload(BaseModel):
+    categoryIds: list[str]
+
+
 _GEOCODE_CACHE: dict[str, dict[str, Any] | None] = {}
 
 
@@ -115,6 +123,58 @@ def create_app(
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return Response(status_code=204)
+
+    @app.post("/api/requests/{request_id}/categories", status_code=201)
+    def create_category_endpoint(request_id: str, payload: CategoryPayload) -> dict[str, Any]:
+        try:
+            item = _service().create_saved_category(request_id, payload.name)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Request not found.") from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"item": item}
+
+    @app.patch("/api/requests/{request_id}/categories/{category_id}")
+    def rename_category_endpoint(request_id: str, category_id: str, payload: CategoryPayload) -> dict[str, Any]:
+        try:
+            _service().get_request(request_id)
+            item = _service().rename_saved_category(request_id, category_id, payload.name)
+        except KeyError as exc:
+            if _service().store.get_request(request_id) is None:
+                raise HTTPException(status_code=404, detail="Request not found.") from exc
+            raise HTTPException(status_code=404, detail="Category not found.") from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"item": item}
+
+    @app.delete("/api/requests/{request_id}/categories/{category_id}", status_code=204)
+    def delete_category_endpoint(request_id: str, category_id: str) -> Response:
+        try:
+            _service().get_request(request_id)
+            _service().delete_saved_category(request_id, category_id)
+        except KeyError as exc:
+            if _service().store.get_request(request_id) is None:
+                raise HTTPException(status_code=404, detail="Request not found.") from exc
+            raise HTTPException(status_code=404, detail="Category not found.") from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return Response(status_code=204)
+
+    @app.put("/api/requests/{request_id}/listings/{listing_id}/categories")
+    def update_listing_categories_endpoint(request_id: str, listing_id: str, payload: ListingCategoriesPayload) -> dict[str, Any]:
+        try:
+            request = _service().get_request(request_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Request not found.") from exc
+        if not request["resultsReady"]:
+            raise HTTPException(status_code=409, detail="Results are not ready yet.")
+        try:
+            item = _service().update_listing_saved_categories(request_id, listing_id, payload.categoryIds)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Listing or category not found.") from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"item": item}
 
     @app.post("/api/requests/{request_id}/resume")
     def resume_request_endpoint(request_id: str) -> dict[str, Any]:
