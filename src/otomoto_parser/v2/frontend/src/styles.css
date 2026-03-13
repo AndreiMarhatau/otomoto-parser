@@ -16,6 +16,40 @@ body {
   overflow-x: hidden;
 }
 
+:where(
+  .hero h1,
+  .hero-link,
+  .eyebrow,
+  .panel h2,
+  .request-row-main,
+  .status-pill,
+  .metric,
+  .progress-box,
+  .error-text,
+  .breadcrumbs,
+  .tab,
+  .listing-topline h3,
+  .listing-content .muted,
+  .listing-place-button,
+  .listing-place-text,
+  .listing-distance-text,
+  .chip,
+  .category-picker-option-label,
+  .category-picker-add,
+  .listing-category-button,
+  .listing-report-button,
+  .modal-head,
+  .modal-meta,
+  .report-section,
+  .report-details,
+  .report-pair,
+  .report-tree-label,
+  .report-tree-value
+) {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 a {
   color: inherit;
 }
@@ -443,6 +477,11 @@ textarea {
 .listing-content,
 .listing-place-row {
   min-width: 0;
+}
+
+.listing-content .muted {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .listing-action-row {
