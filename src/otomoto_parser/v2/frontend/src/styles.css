@@ -445,6 +445,11 @@ textarea {
   min-width: 0;
 }
 
+.listing-content .muted {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .listing-action-row {
   display: flex;
   flex-wrap: wrap;
