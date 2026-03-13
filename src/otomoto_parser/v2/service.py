@@ -842,6 +842,15 @@ class ParserAppService:
             "carfaxUnavailable": carfax_unavailable,
         }
 
+    def _prune_saved_category_assignments(self, request_id: str, valid_listing_ids: set[str]) -> None:
+        state = self._read_saved_categories(request_id)
+        state["assignments"] = {
+            listing_id: category_keys
+            for listing_id, category_keys in state.get("assignments", {}).items()
+            if listing_id in valid_listing_ids
+        }
+        self._write_saved_categories(request_id, state)
+
     def _update_progress(self, request_id: str, payload: dict[str, Any]) -> None:
         event = payload.get("event")
         if event == "page_fetch_started":
@@ -903,6 +912,16 @@ class ParserAppService:
 
             generate_aggregations(paths.results_path, paths.excel_path)
             categorized = build_categorized_payload(paths.results_path)
+            if mode == RUN_MODE_FULL:
+                valid_listing_ids = {
+                    str(item.get("id"))
+                    for category in categorized.get("categories", {}).values()
+                    if isinstance(category, dict)
+                    for item in category.get("items", [])
+                    if isinstance(item, dict) and item.get("id") is not None
+                }
+                with self._request_lock(request_id):
+                    self._prune_saved_category_assignments(request_id, valid_listing_ids)
             _write_json(paths.categorized_path, categorized)
             self.store.update_request(
                 request_id,
