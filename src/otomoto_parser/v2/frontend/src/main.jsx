@@ -11,6 +11,7 @@ const categoryOrder = [
 ];
 
 const inProgressStatuses = new Set(["pending", "running", "categorizing"]);
+const pageSizeOptions = [12, 24, 48];
 
 function haversineKm(a, b) {
   const toRadians = (value) => (value * Math.PI) / 180;
@@ -929,11 +930,18 @@ function RequestResultsPage() {
   const [results, setResults] = React.useState(null);
   const [resultsError, setResultsError] = React.useState(null);
   const [activeCategory, setActiveCategory] = React.useState(categoryOrder[0]);
+  const [pageSize, setPageSize] = React.useState(pageSizeOptions[0]);
+  const [currentPage, setCurrentPage] = React.useState(1);
   const [locationPreview, setLocationPreview] = React.useState(null);
   const [vehicleReportState, setVehicleReportState] = React.useState(null);
   const [geolocationState, setGeolocationState] = React.useState({ status: "idle", coords: null });
   const [locationCache, setLocationCache] = React.useState({});
   const vehicleReportRequestRef = React.useRef(0);
+
+  React.useEffect(() => {
+    setPageSize(pageSizeOptions[0]);
+    setCurrentPage(1);
+  }, [requestId]);
 
   const openVehicleReport = React.useCallback(async (item) => {
     const requestToken = vehicleReportRequestRef.current + 1;
@@ -1053,6 +1061,18 @@ function RequestResultsPage() {
 
   const categoryMap = results?.categories || {};
   const currentItems = categoryMap[activeCategory]?.items || [];
+  const totalPages = Math.max(1, Math.ceil(currentItems.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const visibleItems = currentItems.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const pageStart = Math.max(1, safePage - 2);
+  const pageEnd = Math.min(totalPages, pageStart + 4);
+  const pageNumbers = Array.from({ length: pageEnd - pageStart + 1 }, (_, index) => pageStart + index);
+
+  React.useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   React.useEffect(() => {
     if (!results || geolocationState.status !== "idle") {
@@ -1089,7 +1109,7 @@ function RequestResultsPage() {
       return;
     }
 
-    const uniqueLocations = [...new Set(currentItems.map((item) => item.location).filter(Boolean))];
+    const uniqueLocations = [...new Set(visibleItems.map((item) => item.location).filter(Boolean))];
     const now = Date.now();
     const missingLocations = uniqueLocations.filter((location) => {
       const entry = locationCache[location];
@@ -1135,7 +1155,7 @@ function RequestResultsPage() {
           ),
         }));
       });
-  }, [currentItems, geolocationState.coords, locationCache]);
+  }, [visibleItems, geolocationState.coords, locationCache]);
 
   return (
     <Shell title="Categorized results">
@@ -1163,13 +1183,57 @@ function RequestResultsPage() {
                 <h2>{results.totalCount} listings</h2>
                 <p className="muted">Generated {new Date(results.generatedAt).toLocaleString()}</p>
               </div>
+              <div className="results-controls">
+                <label className="page-size-control">
+                  <span className="chip-label">Per page</span>
+                  <select
+                    value={pageSize}
+                    onChange={(event) => {
+                      setCurrentPage(1);
+                      setPageSize(Number(event.target.value));
+                    }}
+                  >
+                    {pageSizeOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="pagination">
+                  <button type="button" className="pagination-button" disabled={safePage === 1} onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}>
+                    Prev
+                  </button>
+                  {pageNumbers.map((page) => (
+                    <button
+                      key={page}
+                      type="button"
+                      className={page === safePage ? "pagination-button active" : "pagination-button"}
+                      onClick={() => setCurrentPage(page)}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className="pagination-button"
+                    disabled={safePage === totalPages}
+                    onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
             </div>
             <div className="tab-row">
               {categoryOrder.map((category) => (
                 <button
                   key={category}
                   className={category === activeCategory ? "tab active" : "tab"}
-                  onClick={() => setActiveCategory(category)}
+                  onClick={() => {
+                    setCurrentPage(1);
+                    setActiveCategory(category);
+                  }}
                 >
                   {category}
                   <span>{categoryMap[category]?.count || 0}</span>
@@ -1178,7 +1242,7 @@ function RequestResultsPage() {
             </div>
             <div className="listing-grid">
               {currentItems.length === 0 ? <p className="muted">No listings in this category.</p> : null}
-              {currentItems.map((item) => (
+              {visibleItems.map((item) => (
                 <ListingCard
                   key={item.id}
                   item={item}
@@ -1188,6 +1252,11 @@ function RequestResultsPage() {
                 />
               ))}
             </div>
+            {currentItems.length > 0 ? (
+              <div className="results-footer">
+                <p className="muted">{`Showing ${Math.min(currentItems.length, (safePage - 1) * pageSize + 1)}-${Math.min(currentItems.length, safePage * pageSize)} of ${currentItems.length}`}</p>
+              </div>
+            ) : null}
           </>
         ) : null}
       </section>

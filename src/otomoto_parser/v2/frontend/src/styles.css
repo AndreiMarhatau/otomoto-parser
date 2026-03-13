@@ -13,6 +13,7 @@
 body {
   margin: 0;
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 a {
@@ -296,6 +297,47 @@ textarea {
 
 .listing-grid {
   margin-top: 1rem;
+  min-width: 0;
+}
+
+.results-controls,
+.results-footer,
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.results-controls {
+  justify-content: flex-end;
+}
+
+.page-size-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.8rem;
+  border-radius: 999px;
+  background: #ede2d1;
+}
+
+.page-size-control select {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: #1f1c18;
+}
+
+.pagination-button {
+  background: #ede2d1;
+  color: #4e3d2b;
+  padding: 0.65rem 0.95rem;
+}
+
+.pagination-button.active {
+  background: #1f1c18;
+  color: #fff9f0;
 }
 
 .listing-card {
@@ -442,6 +484,11 @@ textarea {
   border-radius: 999px;
   padding: 0.45rem 0.75rem;
   font-size: 0.92rem;
+  max-width: 100%;
+}
+
+.chip span:last-child {
+  overflow-wrap: anywhere;
 }
 
 .chip-link {
@@ -647,5 +694,9 @@ textarea {
   .listing-report-button {
     width: 100%;
     justify-content: center;
+  }
+
+  .results-controls {
+    justify-content: flex-start;
   }
 }

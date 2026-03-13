@@ -59,6 +59,13 @@ def _normalize_first_registration_date(value: str | date | datetime) -> str:
     raise ValueError("Unsupported first registration date format. Use YYYY-MM-DD or DD.MM.YYYY.")
 
 
+def _normalize_registration_number(value: str) -> str:
+    normalized = "".join(value.upper().split())
+    if not normalized:
+        raise ValueError("Registration number cannot be empty.")
+    return normalized
+
+
 def _extract_api_version(html: str) -> str:
     marker_index = html.find(API_VERSION_PATTERN)
     if marker_index == -1:
@@ -167,11 +174,12 @@ class VehicleHistoryClient:
         first_registration_date: str | date | datetime,
     ) -> VehicleHistoryReport:
         normalized_date = _normalize_first_registration_date(first_registration_date)
+        normalized_registration_number = _normalize_registration_number(registration_number)
         nf_wid = f"HistoriaPojazdu:{int(time.time() * 1000)}"
         api_version = self._bootstrap_session(nf_wid)
         xsrf_token = self._cookie_value("XSRF-TOKEN")
         payload = {
-            "registrationNumber": registration_number,
+            "registrationNumber": normalized_registration_number,
             "VINNumber": vin_number,
             "firstRegistrationDate": normalized_date,
         }
@@ -200,7 +208,7 @@ class VehicleHistoryClient:
                 raise RuntimeError(f"HistoriaPojazdu {endpoint} failed: {exc}") from exc
 
         return VehicleHistoryReport(
-            registration_number=registration_number,
+            registration_number=normalized_registration_number,
             vin_number=vin_number,
             first_registration_date=normalized_date,
             api_version=api_version,
