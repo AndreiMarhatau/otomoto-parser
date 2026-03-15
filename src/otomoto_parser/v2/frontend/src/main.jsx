@@ -48,6 +48,9 @@ function formatDistanceChip(itemLocation, geolocationState, locationEntry) {
   if (!itemLocation) {
     return "No location";
   }
+  if (geolocationState.status === "idle") {
+    return "Location off";
+  }
   if (geolocationState.status === "denied") {
     return "Location blocked";
   }
@@ -178,6 +181,16 @@ function IconEdit() {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M4 20l4.5-1 9-9-3.5-3.5-9 9L4 20z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
       <path d="M12.5 6.5L16 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconLocate() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M12 3v3M12 18v3M3 12h3M18 12h3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" strokeWidth="1.4" strokeDasharray="2 2" />
     </svg>
   );
 }
@@ -1171,6 +1184,32 @@ function RequestResultsPage() {
     setReloadToken((value) => value + 1);
   }, []);
 
+  const requestCurrentLocation = React.useCallback(() => {
+    if (!navigator.geolocation) {
+      setGeolocationState({ status: "unavailable", coords: null });
+      return;
+    }
+    setGeolocationState({ status: "loading", coords: null });
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setGeolocationState({
+          status: "ready",
+          coords: {
+            lat: position.coords.latitude,
+            lon: position.coords.longitude,
+          },
+        });
+      },
+      (error) => {
+        setGeolocationState({
+          status: error?.code === 1 ? "denied" : "unavailable",
+          coords: null,
+        });
+      },
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 },
+    );
+  }, []);
+
   const promptCategoryName = React.useCallback((initialValue = "") => {
     const name = window.prompt("Category name", initialValue);
     if (name === null) {
@@ -1407,6 +1446,22 @@ function RequestResultsPage() {
   const totalPages = results?.pagination?.totalPages || 1;
   const safePage = results?.pagination?.page || 1;
   const pageNumbers = buildPageItems(safePage, totalPages);
+  const locationActionLabel =
+    geolocationState.status === "ready"
+      ? "Refresh my location"
+      : geolocationState.status === "loading"
+        ? "Locating..."
+        : "Use my location";
+  const locationStatusText =
+    geolocationState.status === "ready"
+      ? "Distance chips use your current position."
+      : geolocationState.status === "denied"
+        ? "Location blocked. Enable it in browser or app settings, then try again."
+        : geolocationState.status === "unavailable"
+          ? "Location is unavailable on this device or browser."
+          : geolocationState.status === "loading"
+            ? "Waiting for your location..."
+            : "Enable location to calculate distance from you.";
 
   React.useEffect(() => {
     if (currentPage > totalPages) {
@@ -1441,36 +1496,6 @@ function RequestResultsPage() {
       }
     };
   }, [safePage]);
-
-  React.useEffect(() => {
-    if (!results || geolocationState.status !== "idle") {
-      return;
-    }
-    if (!navigator.geolocation) {
-      setGeolocationState({ status: "unavailable", coords: null });
-      return;
-    }
-
-    setGeolocationState({ status: "loading", coords: null });
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setGeolocationState({
-          status: "ready",
-          coords: {
-            lat: position.coords.latitude,
-            lon: position.coords.longitude,
-          },
-        });
-      },
-      (error) => {
-        setGeolocationState({
-          status: error?.code === 1 ? "denied" : "unavailable",
-          coords: null,
-        });
-      },
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 },
-    );
-  }, [results, geolocationState.status]);
 
   React.useEffect(() => {
     if (!geolocationState.coords) {
@@ -1552,6 +1577,10 @@ function RequestResultsPage() {
                 <p className="muted">Generated {new Date(results.generatedAt).toLocaleString()}</p>
               </div>
               <div className="results-controls">
+                <button type="button" className="button-secondary" onClick={requestCurrentLocation} disabled={geolocationState.status === "loading"}>
+                  <IconLocate />
+                  <span>{locationActionLabel}</span>
+                </button>
                 <label className="page-size-control">
                   <span className="chip-label">Per page</span>
                   <select
@@ -1568,6 +1597,7 @@ function RequestResultsPage() {
                     ))}
                   </select>
                 </label>
+                <p className="muted">{locationStatusText}</p>
               </div>
             </div>
             <div className="tab-row">
