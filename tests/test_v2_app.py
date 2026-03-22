@@ -126,6 +126,7 @@ def _fake_history_report() -> VehicleHistoryReport:
         },
         autodna_data={"summary": {"events": 3}},
         carfax_data={"summary": {"entries": 1}},
+        timeline_data={"timelineData": {"events": [{"type": "registration"}]}},
     )
 
 

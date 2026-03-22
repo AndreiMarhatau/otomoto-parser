@@ -88,6 +88,8 @@ def test_fetch_report_bootstraps_session_and_reuses_nf_wid() -> None:
             return _FakeResponse('{"autoDnaData":{"damaged":false}}')
         if request.full_url.endswith("/carfax-data"):
             return _FakeResponse('{"carfaxData":{"risk":{"stolen":false}}}')
+        if request.full_url.endswith("/timeline-data"):
+            return _FakeResponse('{"timelineData":{"events":[{"type":"registration"}]}}')
         raise AssertionError(request.full_url)
 
     opener = _FakeOpener(handler)
@@ -99,11 +101,12 @@ def test_fetch_report_bootstraps_session_and_reuses_nf_wid() -> None:
     assert len(nf_wid_values) == 1
     assert report.api_version == "1.0.20"
     assert report.technical_data["technicalData"]["basicData"]["make"] == "PEUGEOT"
+    assert report.timeline_data["timelineData"]["events"][0]["type"] == "registration"
 
 
 def test_fetch_report_retries_on_500_but_not_on_400() -> None:
     jar = CookieJar()
-    attempts = {"vehicle-data": 0, "autodna-data": 0, "carfax-data": 0}
+    attempts = {"vehicle-data": 0, "autodna-data": 0, "carfax-data": 0, "timeline-data": 0}
 
     def handler(request):
         if "engine/ng/index" in request.full_url:
@@ -117,6 +120,8 @@ def test_fetch_report_retries_on_500_but_not_on_400() -> None:
             return _FakeResponse('{"autoDnaData":{"damaged":false}}')
         if endpoint == "carfax-data" and attempts[endpoint] == 1:
             return _FakeResponse('{"carfaxData":{"risk":{"stolen":false}}}')
+        if endpoint == "timeline-data" and attempts[endpoint] == 1:
+            return _FakeResponse('{"timelineData":{"events":[{"type":"registration"}]}}')
         if endpoint == "vehicle-data":
             return _FakeResponse('{"technicalData":{"basicData":{"make":"PEUGEOT"}}}')
         raise AssertionError(endpoint)
@@ -165,6 +170,8 @@ def test_fetch_report_treats_optional_external_404_as_unavailable() -> None:
         endpoint = request.full_url.rsplit("/", 1)[-1]
         if endpoint == "vehicle-data":
             return _FakeResponse('{"technicalData":{"basicData":{"make":"PEUGEOT"}}}')
+        if endpoint == "timeline-data":
+            return _FakeResponse('{"timelineData":{"events":[{"type":"registration"}]}}')
         raise HTTPError(request.full_url, 404, "Not Found", hdrs=None, fp=None)
 
     client = VehicleHistoryClient(
@@ -178,6 +185,7 @@ def test_fetch_report_treats_optional_external_404_as_unavailable() -> None:
     assert report.technical_data["technicalData"]["basicData"]["make"] == "PEUGEOT"
     assert report.autodna_data["unavailable"] is True
     assert report.carfax_data["unavailable"] is True
+    assert report.timeline_data["timelineData"]["events"][0]["type"] == "registration"
 
 
 def test_custom_opener_cookie_jar_is_discovered_and_zero_retries_still_runs() -> None:

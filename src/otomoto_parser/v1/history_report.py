@@ -28,7 +28,7 @@ DEFAULT_BACKOFF_BASE_S = 1.0
 
 INIT_URL = "https://moj.gov.pl/nforms/engine/ng/index?xFormsAppName=HistoriaPojazdu#/search"
 API_VERSION_PATTERN = '/nforms/api/HistoriaPojazdu/'
-DATA_ENDPOINTS = ("vehicle-data", "autodna-data", "carfax-data")
+DATA_ENDPOINTS = ("vehicle-data", "autodna-data", "carfax-data", "timeline-data")
 
 
 class OpenerLike(Protocol):
@@ -44,6 +44,7 @@ class VehicleHistoryReport:
     technical_data: dict[str, Any]
     autodna_data: dict[str, Any]
     carfax_data: dict[str, Any]
+    timeline_data: dict[str, Any]
 
 
 def _normalize_first_registration_date(value: str | date | datetime) -> str:
@@ -215,6 +216,7 @@ class VehicleHistoryClient:
             technical_data=responses["vehicle-data"],
             autodna_data=responses["autodna-data"],
             carfax_data=responses["carfax-data"],
+            timeline_data=responses["timeline-data"],
         )
 
     def _bootstrap_session(self, nf_wid: str) -> str:
