@@ -553,13 +553,16 @@ class ParserAppService:
             listing = self._resolve_listing_for_report(request_id, listing_id)
             canonical_listing_id = listing["id"]
             cache_path = self._vehicle_report_path(request_id, canonical_listing_id)
+            status_path = self._vehicle_report_status_path(request_id, canonical_listing_id)
             if not force_refresh:
                 cached = _read_json(cache_path, None)
                 if cached is not None:
                     return cached
             url = listing.get("url")
             if not isinstance(url, str) or not url:
-                raise RuntimeError("Listing URL is missing, so the vehicle report cannot be fetched.")
+                error_message = "Listing URL is missing, so the vehicle report cannot be fetched."
+                self._write_vehicle_report_status(status_path, status="failed", error=error_message)
+                raise RuntimeError(error_message)
             try:
                 identity = fetch_otomoto_vehicle_identity(
                     url,
@@ -576,20 +579,31 @@ class ParserAppService:
                     identity.first_registration_date,
                 )
             except Exception as exc:  # noqa: BLE001
-                raise RuntimeError(f"Could not fetch vehicle report data: {exc}") from exc
+                error_message = f"Could not fetch vehicle report data: {exc}"
+                self._write_vehicle_report_status(status_path, status="failed", error=error_message)
+                raise RuntimeError(error_message) from exc
             payload = self._build_vehicle_report_payload(listing, identity, history)
             self.get_request(request_id)
             _write_json(cache_path, payload)
+            self._write_vehicle_report_status(
+                status_path,
+                status="success",
+                retrieved_at=payload["retrievedAt"],
+            )
             return payload
 
     def _attach_report_cache_metadata(self, request_id: str, items: list[dict[str, Any]]) -> None:
         for item in items:
             if not isinstance(item, dict) or item.get("id") is None:
                 continue
+            status = _read_json(self._vehicle_report_status_path(request_id, str(item["id"])), {})
             report = _read_json(self._vehicle_report_path(request_id, str(item["id"])), None)
             item["vehicleReport"] = {
                 "cached": report is not None,
                 "retrievedAt": report.get("retrievedAt") if report else None,
+                "status": status.get("status"),
+                "lastAttemptAt": status.get("lastAttemptAt"),
+                "lastError": status.get("lastError"),
             }
 
     def _attach_saved_category_metadata(self, request_id: str, items: list[dict[str, Any]]) -> None:
@@ -648,6 +662,27 @@ class ParserAppService:
         paths = self.request_paths(request_id)
         cache_key = sha256(listing_id.encode("utf-8")).hexdigest()
         return paths.reports_dir / f"{cache_key}.json"
+
+    def _vehicle_report_status_path(self, request_id: str, listing_id: str) -> Path:
+        paths = self.request_paths(request_id)
+        cache_key = sha256(f"{listing_id}:status".encode("utf-8")).hexdigest()
+        return paths.reports_dir / f"{cache_key}.json"
+
+    def _write_vehicle_report_status(
+        self,
+        path: Path,
+        *,
+        status: str,
+        error: str | None = None,
+        retrieved_at: str | None = None,
+    ) -> None:
+        payload = {
+            "status": status,
+            "lastAttemptAt": utc_now(),
+            "lastError": error,
+            "retrievedAt": retrieved_at,
+        }
+        _write_json(path, payload)
 
     def _canonical_listing_id(self, record: dict[str, Any]) -> str:
         node = record.get("node") if isinstance(record.get("node"), dict) else {}

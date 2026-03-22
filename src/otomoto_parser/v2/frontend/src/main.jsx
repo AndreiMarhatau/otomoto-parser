@@ -149,6 +149,15 @@ function IconCheckBadge() {
   );
 }
 
+function IconXBadge() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 2l2.1 2.3 3.1-.3 1.2 2.8 2.8 1.2-.3 3.1L23 13l-2.1 2.3.3 3.1-2.8 1.2-1.2 2.8-3.1-.3L12 24l-2.3-2.1-3.1.3-1.2-2.8-2.8-1.2.3-3.1L1 13l2.1-2.3-.3-3.1 2.8-1.2 1.2-2.8 3.1.3z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+      <path d="M9.2 9.2l5.6 5.6M14.8 9.2l-5.6 5.6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function IconChevronLeft() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1040,7 +1049,14 @@ function VehicleReportModal({ state, onClose, onRegenerate }) {
 function ListingCard({ item, assignableCategories, categoryBusy, onAssignCategories, onCreateCategory, onOpenLocation, onOpenReport, distanceLabel }) {
   const [categoryPickerOpen, setCategoryPickerOpen] = React.useState(false);
   const createdAt = item.createdAt ? new Date(item.createdAt).toLocaleString() : "—";
-  const reportDisabled = item.dataVerified !== true && item.vehicleReport?.cached !== true;
+  const reportStatus = item.vehicleReport?.status;
+  const reportStateTitle = reportStatus === "success"
+    ? `Report fetched ${item.vehicleReport?.retrievedAt ? new Date(item.vehicleReport.retrievedAt).toLocaleString() : ""}`.trim()
+    : reportStatus === "failed"
+      ? item.vehicleReport?.lastAttemptAt
+        ? `Previous fetch failed ${new Date(item.vehicleReport.lastAttemptAt).toLocaleString()}`
+        : "Previous fetch failed"
+      : null;
   const specs = [
     ...(item.category === "Price evaluation out of range" && item.dataVerified === true
       ? [{ label: "Status", value: "Verified data", tone: "verified" }]
@@ -1086,22 +1102,23 @@ function ListingCard({ item, assignableCategories, categoryBusy, onAssignCategor
             <button
               type="button"
               className="listing-report-button chip-interactive"
-              disabled={reportDisabled}
-              title={reportDisabled ? "Vehicle report is available only for verified-data listings." : "Open vehicle report"}
+              title="Open vehicle report"
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                if (reportDisabled) {
-                  return;
-                }
                 onOpenReport(item);
               }}
             >
               <IconReport />
               <span>Vehicle report</span>
-              {item.vehicleReport?.cached ? (
-                <span className="listing-report-state" title={`Cached ${new Date(item.vehicleReport.retrievedAt).toLocaleString()}`}>
+              {reportStatus === "success" ? (
+                <span className="listing-report-state listing-report-state-success" title={reportStateTitle}>
                   <IconCheckBadge />
+                </span>
+              ) : null}
+              {reportStatus === "failed" ? (
+                <span className="listing-report-state listing-report-state-failed" title={reportStateTitle}>
+                  <IconXBadge />
                 </span>
               ) : null}
             </button>
@@ -1310,7 +1327,13 @@ function RequestResultsPage() {
           candidate.id === item.id
             ? {
                 ...candidate,
-                vehicleReport: { cached: true, retrievedAt: payload.item.retrievedAt },
+                vehicleReport: {
+                  cached: true,
+                  retrievedAt: payload.item.retrievedAt,
+                  status: "success",
+                  lastAttemptAt: payload.item.retrievedAt,
+                  lastError: null,
+                },
               }
             : candidate,
         );
@@ -1321,6 +1344,26 @@ function RequestResultsPage() {
         return;
       }
       setVehicleReportState({ item, loading: false, regenerating: false, error: error.message, data: null });
+      setResults((current) => {
+        if (!current) {
+          return current;
+        }
+        const items = (current.items || []).map((candidate) =>
+          candidate.id === item.id
+            ? {
+                ...candidate,
+                vehicleReport: {
+                  cached: candidate.vehicleReport?.cached === true,
+                  retrievedAt: candidate.vehicleReport?.retrievedAt || null,
+                  status: "failed",
+                  lastAttemptAt: new Date().toISOString(),
+                  lastError: error.message,
+                },
+              }
+            : candidate,
+        );
+        return { ...current, items };
+      });
     }
   }, [requestId]);
 
@@ -1346,7 +1389,13 @@ function RequestResultsPage() {
           candidate.id === item.id
             ? {
                 ...candidate,
-                vehicleReport: { cached: true, retrievedAt: payload.item.retrievedAt },
+                vehicleReport: {
+                  cached: true,
+                  retrievedAt: payload.item.retrievedAt,
+                  status: "success",
+                  lastAttemptAt: payload.item.retrievedAt,
+                  lastError: null,
+                },
               }
             : candidate,
         );
@@ -1357,6 +1406,26 @@ function RequestResultsPage() {
         return;
       }
       setVehicleReportState((current) => ({ ...current, regenerating: false, error: error.message }));
+      setResults((current) => {
+        if (!current) {
+          return current;
+        }
+        const items = (current.items || []).map((candidate) =>
+          candidate.id === item.id
+            ? {
+                ...candidate,
+                vehicleReport: {
+                  cached: candidate.vehicleReport?.cached === true,
+                  retrievedAt: candidate.vehicleReport?.retrievedAt || null,
+                  status: "failed",
+                  lastAttemptAt: new Date().toISOString(),
+                  lastError: error.message,
+                },
+              }
+            : candidate,
+        );
+        return { ...current, items };
+      });
     }
   }, [requestId, vehicleReportState]);
 

@@ -1067,8 +1067,10 @@ def test_vehicle_report_endpoint_requires_listing_to_exist_in_current_request(mo
 def test_vehicle_report_endpoint_normalizes_upstream_failures(monkeypatch, tmp_path: Path) -> None:
     service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
     app = create_app(data_dir=tmp_path, service=service)
+    identity_calls = {"value": 0}
 
     def fail_identity(url, **kwargs):
+        identity_calls["value"] += 1
         raise URLError("temporary failure")
 
     monkeypatch.setattr(service_module, "fetch_otomoto_vehicle_identity", fail_identity)
@@ -1084,6 +1086,21 @@ def test_vehicle_report_endpoint_normalizes_upstream_failures(monkeypatch, tmp_p
         response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
         assert response.status_code == 502
         assert "Could not fetch vehicle report data" in response.json()["detail"]
+        assert identity_calls["value"] == 1
+
+        results_response = client.get(
+            f"/api/requests/{request_id}/results",
+            params={"category": CATEGORY_TO_BE_CHECKED},
+        )
+        item = results_response.json()["items"][0]
+        assert item["vehicleReport"]["cached"] is False
+        assert item["vehicleReport"]["status"] == "failed"
+        assert item["vehicleReport"]["lastAttemptAt"]
+        assert "Could not fetch vehicle report data" in item["vehicleReport"]["lastError"]
+
+        retry_response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        assert retry_response.status_code == 502
+        assert identity_calls["value"] == 2
 
 
 def test_vehicle_report_endpoint_waits_for_ready_results(tmp_path: Path) -> None:
