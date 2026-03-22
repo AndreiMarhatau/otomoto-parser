@@ -1039,6 +1039,10 @@ function VehicleReportModal({ state, onClose, onRegenerate }) {
               <summary>Carfax</summary>
               <DataTree label="Carfax" value={report.carfax_data} />
             </details>
+            <details className="report-details">
+              <summary>Timeline</summary>
+              <DataTree label="Timeline" value={report.timeline_data} />
+            </details>
           </div>
         ) : null}
       </div>
