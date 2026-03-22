@@ -609,7 +609,14 @@ textarea {
   height: 1.15rem;
   display: inline-grid;
   place-items: center;
+}
+
+.listing-report-state-success {
   color: #c8f0d0;
+}
+
+.listing-report-state-failed {
+  color: #f4b2b2;
 }
 
 .listing-place-row {
