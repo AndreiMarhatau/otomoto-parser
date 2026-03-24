@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Link, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import "./styles.css";
+import { getGeolocationErrorStatus, getInitialGeolocationPlan } from "./geolocation";
 
 const systemCategoryOrder = [
   "Price evaluation out of range",
@@ -54,6 +55,12 @@ function formatDistanceChip(itemLocation, geolocationState, locationEntry) {
   if (geolocationState.status === "unavailable") {
     return "Location unavailable";
   }
+  if (geolocationState.status === "prompt" || geolocationState.status === "idle") {
+    return "Enable location";
+  }
+  if (geolocationState.status === "requesting") {
+    return "Requesting location...";
+  }
   if (!geolocationState.coords) {
     return "Locating you...";
   }
@@ -65,6 +72,22 @@ function formatDistanceChip(itemLocation, geolocationState, locationEntry) {
   }
   const distanceKm = haversineKm(geolocationState.coords, locationEntry.coords);
   return `~${distanceKm.toFixed(1)} km from you`;
+}
+
+function formatGeolocationStatus(geolocationState) {
+  if (geolocationState.status === "ready") {
+    return "Distance enabled";
+  }
+  if (geolocationState.status === "requesting") {
+    return "Requesting location...";
+  }
+  if (geolocationState.status === "denied") {
+    return "Location blocked in browser permissions";
+  }
+  if (geolocationState.status === "unavailable") {
+    return "Location is unavailable in this browser context";
+  }
+  return "Enable location to show distances";
 }
 
 function formatFieldLabel(key) {
@@ -1502,7 +1525,7 @@ function ListingCard({ item, assignableCategories, categoryBusy, onAssignCategor
   );
 }
 
-function RequestResultsPage() {
+export function RequestResultsPage() {
   const { requestId } = useParams();
   const requestLoader = React.useCallback(() => api(`/api/requests/${requestId}`), [requestId]);
   const { data: requestData, loading: requestLoading } = usePolling(requestLoader, true);
@@ -1525,6 +1548,66 @@ function RequestResultsPage() {
   const listTopRef = React.useRef(null);
   const previousPageRef = React.useRef(null);
   const paginationScrollRafRef = React.useRef(null);
+  const geolocationRequestInFlightRef = React.useRef(false);
+  const geolocationStateRef = React.useRef({ status: "idle", coords: null });
+
+  const requestCurrentPosition = React.useCallback(() => {
+    if (!navigator.geolocation || !window.isSecureContext) {
+      setGeolocationState({ status: "unavailable", coords: null });
+      return;
+    }
+    if (geolocationRequestInFlightRef.current) {
+      return;
+    }
+
+    geolocationRequestInFlightRef.current = true;
+    setGeolocationState((current) => ({
+      status: "requesting",
+      coords: current.status === "ready" ? current.coords : null,
+    }));
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        geolocationRequestInFlightRef.current = false;
+        setGeolocationState({
+          status: "ready",
+          coords: {
+            lat: position.coords.latitude,
+            lon: position.coords.longitude,
+          },
+        });
+      },
+      (error) => {
+        geolocationRequestInFlightRef.current = false;
+        const permissionStatus = navigator.permissions?.query;
+        if (typeof permissionStatus !== "function") {
+          setGeolocationState({
+            status: getGeolocationErrorStatus({ errorCode: error?.code }),
+            coords: null,
+          });
+          return;
+        }
+        permissionStatus
+          .call(navigator.permissions, { name: "geolocation" })
+          .then((permission) => {
+            setGeolocationState({
+              status: getGeolocationErrorStatus({ errorCode: error?.code, permissionState: permission.state }),
+              coords: null,
+            });
+          })
+          .catch(() => {
+            setGeolocationState({
+              status: getGeolocationErrorStatus({ errorCode: error?.code }),
+              coords: null,
+            });
+          });
+      },
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 },
+    );
+  }, []);
+
+  React.useEffect(() => {
+    geolocationStateRef.current = geolocationState;
+  }, [geolocationState]);
 
   React.useEffect(() => {
     setPageSize(pageSizeOptions[0]);
@@ -2024,34 +2107,88 @@ function RequestResultsPage() {
   }, [safePage]);
 
   React.useEffect(() => {
-    if (!results || geolocationState.status !== "idle") {
+    if (!results) {
       return;
     }
-    if (!navigator.geolocation) {
+    const hasGeolocation = Boolean(navigator.geolocation);
+    const isSecureContext = window.isSecureContext;
+    const hasPermissionsApi = typeof navigator.permissions?.query === "function";
+    if (!hasGeolocation || !isSecureContext) {
       setGeolocationState({ status: "unavailable", coords: null });
       return;
     }
+    if (!hasPermissionsApi) {
+      const currentGeolocationState = geolocationStateRef.current;
+      if (currentGeolocationState.status === "ready" && currentGeolocationState.coords) {
+        return;
+      }
+      if (currentGeolocationState.status === "requesting") {
+        return;
+      }
+      setGeolocationState({ status: "prompt", coords: null });
+      return;
+    }
 
-    setGeolocationState({ status: "loading", coords: null });
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setGeolocationState({
-          status: "ready",
-          coords: {
-            lat: position.coords.latitude,
-            lon: position.coords.longitude,
-          },
-        });
-      },
-      (error) => {
-        setGeolocationState({
-          status: error?.code === 1 ? "denied" : "unavailable",
-          coords: null,
-        });
-      },
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 },
-    );
-  }, [results, geolocationState.status]);
+    let active = true;
+    let permissionRef = null;
+    navigator.permissions
+      .query({ name: "geolocation" })
+      .then((permissionStatus) => {
+        if (!active) {
+          return;
+        }
+        permissionRef = permissionStatus;
+        const syncPermissionState = () => {
+          if (!active) {
+            return;
+          }
+          const currentGeolocationState = geolocationStateRef.current;
+          const nextPlan = getInitialGeolocationPlan({
+            hasGeolocation: Boolean(navigator.geolocation),
+            isSecureContext: window.isSecureContext,
+            hasPermissionsApi: true,
+            permissionState: permissionStatus.state,
+          });
+          if (
+            nextPlan.shouldRequestPosition
+            && !geolocationRequestInFlightRef.current
+            && (currentGeolocationState.status !== "ready" || !currentGeolocationState.coords)
+          ) {
+            requestCurrentPosition();
+            return;
+          }
+          if (
+            nextPlan.status === "prompt"
+            && (currentGeolocationState.status === "requesting" || currentGeolocationState.status === "ready")
+          ) {
+            return;
+          }
+          if (
+            currentGeolocationState.status !== nextPlan.status
+            || currentGeolocationState.coords !== null
+          ) {
+            setGeolocationState({
+              status: nextPlan.status,
+              coords: null,
+            });
+          }
+        };
+        syncPermissionState();
+        permissionStatus.onchange = syncPermissionState;
+      })
+      .catch(() => {
+        if (active) {
+          setGeolocationState({ status: "prompt", coords: null });
+        }
+      });
+
+    return () => {
+      active = false;
+      if (permissionRef) {
+        permissionRef.onchange = null;
+      }
+    };
+  }, [results, requestCurrentPosition]);
 
   React.useEffect(() => {
     if (!geolocationState.coords) {
@@ -2127,15 +2264,28 @@ function RequestResultsPage() {
         {resultsError && request?.resultsReady ? <p className="error-text">{resultsError}</p> : null}
         {results ? (
           <>
-            <div className="results-head">
-              <div>
-                <h2>{results.totalCount} listings</h2>
-                <p className="muted">Generated {new Date(results.generatedAt).toLocaleString()}</p>
-              </div>
-              <div className="results-controls">
-                <label className="page-size-control">
-                  <span className="chip-label">Per page</span>
-                  <select
+              <div className="results-head">
+                <div>
+                  <h2>{results.totalCount} listings</h2>
+                  <p className="muted">Generated {new Date(results.generatedAt).toLocaleString()}</p>
+                </div>
+                <div className="results-controls">
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    onClick={requestCurrentPosition}
+                    disabled={!results || geolocationState.status === "requesting"}
+                  >
+                    {geolocationState.status === "ready"
+                      ? "Refresh location"
+                      : geolocationState.status === "requesting"
+                        ? "Requesting..."
+                        : "Enable location"}
+                  </button>
+                  <span className="muted results-location-status">{formatGeolocationStatus(geolocationState)}</span>
+                  <label className="page-size-control">
+                    <span className="chip-label">Per page</span>
+                    <select
                     value={pageSize}
                     onChange={(event) => {
                       setCurrentPage(1);
@@ -2283,8 +2433,13 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+export { App, api };
+
+const rootElement = document.getElementById("root");
+if (rootElement) {
+  ReactDOM.createRoot(rootElement).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
+  );
+}

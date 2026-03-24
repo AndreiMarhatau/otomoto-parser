@@ -368,6 +368,11 @@ textarea {
   justify-content: flex-end;
 }
 
+.results-location-status {
+  max-width: min(22rem, 100%);
+  text-align: right;
+}
+
 .page-size-control {
   display: inline-flex;
   align-items: center;
