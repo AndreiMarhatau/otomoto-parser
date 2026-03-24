@@ -50,6 +50,13 @@ class VehicleHistoryReport:
     timeline_data: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class VehicleHistoryBootstrap:
+    nf_wid: str
+    api_version: str
+    xsrf_token: str
+
+
 class CancellationRequested(RuntimeError):
     pass
 
@@ -202,6 +209,21 @@ class VehicleHistoryClient:
         self.retry_attempts = retry_attempts
         self.backoff_base_s = backoff_base_s
         self.cancel_event = cancel_event
+        self._bootstrap_context: VehicleHistoryBootstrap | None = None
+
+    def bootstrap_session(self, *, force: bool = False) -> VehicleHistoryBootstrap:
+        if self._bootstrap_context is not None and not force:
+            return self._bootstrap_context
+        self._raise_if_cancelled()
+        nf_wid = f"HistoriaPojazdu:{int(time.time() * 1000)}"
+        api_version = self._bootstrap_session(nf_wid)
+        context = VehicleHistoryBootstrap(
+            nf_wid=nf_wid,
+            api_version=api_version,
+            xsrf_token=self._cookie_value("XSRF-TOKEN"),
+        )
+        self._bootstrap_context = context
+        return context
 
     def fetch_report(
         self,
@@ -213,9 +235,7 @@ class VehicleHistoryClient:
         normalized_registration_number = _normalize_registration_number(registration_number)
         normalized_vin_number = _normalize_vin_number(vin_number)
         self._raise_if_cancelled()
-        nf_wid = f"HistoriaPojazdu:{int(time.time() * 1000)}"
-        api_version = self._bootstrap_session(nf_wid)
-        xsrf_token = self._cookie_value("XSRF-TOKEN")
+        bootstrap = self.bootstrap_session()
         payload = {
             "registrationNumber": normalized_registration_number,
             "VINNumber": normalized_vin_number,
@@ -227,10 +247,10 @@ class VehicleHistoryClient:
             self._raise_if_cancelled()
             try:
                 responses[endpoint] = self._post_data(
-                    api_version=api_version,
+                    api_version=bootstrap.api_version,
                     endpoint=endpoint,
-                    nf_wid=nf_wid,
-                    xsrf_token=xsrf_token,
+                    nf_wid=bootstrap.nf_wid,
+                    xsrf_token=bootstrap.xsrf_token,
                     payload=payload,
                 )
             except HTTPError as exc:
@@ -250,7 +270,7 @@ class VehicleHistoryClient:
             registration_number=normalized_registration_number,
             vin_number=normalized_vin_number,
             first_registration_date=normalized_date,
-            api_version=api_version,
+            api_version=bootstrap.api_version,
             technical_data=responses["vehicle-data"],
             autodna_data=responses["autodna-data"],
             carfax_data=responses["carfax-data"],
@@ -258,72 +278,42 @@ class VehicleHistoryClient:
         )
 
     def _bootstrap_session(self, nf_wid: str) -> str:
-        attempts = [
-            (
-                "HistoriaPojazdu bootstrap shell",
-                Request(
-                    INIT_URL,
-                    method="GET",
-                    headers={
-                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                        "Accept-Language": self.accept_language,
-                        "User-Agent": self.user_agent,
-                    },
-                ),
-            ),
-            (
-                "HistoriaPojazdu bootstrap app",
-                Request(
-                    INIT_URL,
-                    data=urlencode({"NF_WID": nf_wid}).encode("utf-8"),
-                    method="POST",
-                    headers={
-                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                        "Accept-Language": self.accept_language,
-                        "Content-Type": "application/x-www-form-urlencoded",
-                        "Origin": "null",
-                        "Referer": INIT_URL,
-                        "User-Agent": self.user_agent,
-                    },
-                ),
-            ),
-        ]
+        label = "HistoriaPojazdu bootstrap app"
+        request = Request(
+            INIT_URL,
+            data=urlencode({"NF_WID": nf_wid}).encode("utf-8"),
+            method="POST",
+            headers={
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": self.accept_language,
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Origin": "null",
+                "Referer": INIT_URL,
+                "User-Agent": self.user_agent,
+            },
+        )
 
-        last_error: RuntimeError | None = None
-        for label, request in attempts:
-            def action() -> str:
-                self._raise_if_cancelled()
-                with self.opener.open(request, timeout=self.timeout_s) as response:
-                    return response.read().decode("utf-8")
+        def action() -> str:
+            self._raise_if_cancelled()
+            with self.opener.open(request, timeout=self.timeout_s) as response:
+                return response.read().decode("utf-8")
 
-            try:
-                html = _with_retry(
-                    action,
-                    attempts=self.retry_attempts,
-                    base_delay=self.backoff_base_s,
-                    label=label,
-                    should_abort=self._is_cancelled,
-                )
-            except CancellationRequested:
-                raise
-            except (HTTPError, URLError, TimeoutError, ConnectionResetError, http.client.RemoteDisconnected) as exc:
-                last_error = RuntimeError(f"{label} failed: {exc}")
-                LOGGER.info("%s failed during bootstrap transport; trying next bootstrap strategy.", label)
-                continue
-            try:
-                api_version = _extract_api_version(html)
-            except RuntimeError as exc:
-                last_error = exc
-                LOGGER.info("%s did not expose the HistoriaPojazdu API version; trying next bootstrap strategy.", label)
-                continue
-            if not self._has_cookie("XSRF-TOKEN"):
-                last_error = RuntimeError(f"{label} did not establish the required HistoriaPojazdu session cookies.")
-                LOGGER.info("%s exposed an API version but did not provide XSRF session cookies; trying next bootstrap strategy.", label)
-                continue
-            return api_version
-        if last_error is not None:
-            raise last_error
-        raise RuntimeError("Could not determine HistoriaPojazdu API version from bootstrap HTML.")
+        try:
+            html = _with_retry(
+                action,
+                attempts=self.retry_attempts,
+                base_delay=self.backoff_base_s,
+                label=label,
+                should_abort=self._is_cancelled,
+            )
+        except CancellationRequested:
+            raise
+        except (HTTPError, URLError, TimeoutError, ConnectionResetError, http.client.RemoteDisconnected) as exc:
+            raise RuntimeError(f"{label} failed: {exc}") from exc
+        api_version = _extract_api_version(html)
+        if not self._has_cookie("XSRF-TOKEN"):
+            raise RuntimeError(f"{label} did not establish the required HistoriaPojazdu session cookies.")
+        return api_version
 
     def _post_data(
         self,

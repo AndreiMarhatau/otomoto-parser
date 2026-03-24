@@ -1450,6 +1450,62 @@ def test_vehicle_report_lookup_normalizes_manual_inputs_and_persists_normalized_
         assert fetch_calls == [("DLU8613F", "WDDSJ4EB2EN056917", "2014-01-01")]
 
 
+def test_vehicle_report_lookup_bootstraps_historia_pojazdu_once_per_job(monkeypatch, tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+    bootstrap_calls: list[int] = []
+    bootstrap_context_ids: list[int] = []
+    fetch_calls: list[tuple[str, str, str]] = []
+
+    monkeypatch.setattr(service_module, "fetch_otomoto_vehicle_identity", lambda url, **kwargs: _fake_identity())
+
+    def fake_bootstrap_session(self) -> object:
+        bootstrap_calls.append(id(self))
+        token = object()
+        self._bootstrap_context = token
+        return token
+
+    def fake_fetch_report(self, registration_number: str, vin_number: str, first_registration_date: str) -> VehicleHistoryReport:
+        fetch_calls.append((registration_number, vin_number, first_registration_date))
+        bootstrap_context_ids.append(id(self._bootstrap_context))
+        if first_registration_date in {"2014-01-01", "2014-01-02"}:
+            raise RuntimeError("HistoriaPojazdu vehicle-data failed with HTTP 404: Not Found")
+        report = _fake_history_report()
+        report.first_registration_date = first_registration_date
+        return report
+
+    monkeypatch.setattr(service_module.VehicleHistoryClient, "bootstrap_session", fake_bootstrap_session)
+    monkeypatch.setattr(service_module.VehicleHistoryClient, "fetch_report", fake_fetch_report)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        lookup_response = client.post(
+            f"/api/requests/{request_id}/listings/4/vehicle-report/lookup",
+            json={
+                "registrationNumber": "DLU8613F",
+                "dateFrom": "2014-01-01",
+                "dateTo": "2014-01-03",
+            },
+        )
+        assert lookup_response.status_code == 200
+
+        final_item = _wait_for_vehicle_report_state(client, request_id, "4")
+        assert final_item["report"]["first_registration_date"] == "2014-01-03"
+        assert len(bootstrap_calls) == 1
+        assert fetch_calls == [
+            ("DLU8613F", "WDDSJ4EB2EN056917", "2014-01-01"),
+            ("DLU8613F", "WDDSJ4EB2EN056917", "2014-01-02"),
+            ("DLU8613F", "WDDSJ4EB2EN056917", "2014-01-03"),
+        ]
+        assert len(set(bootstrap_context_ids)) == 1
+
+
 def test_vehicle_report_lookup_rejects_invalid_dates_with_retryable_client_error(monkeypatch, tmp_path: Path) -> None:
     service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
     app = create_app(data_dir=tmp_path, service=service)
@@ -1813,13 +1869,21 @@ def test_vehicle_report_regenerate_is_blocked_while_async_lookup_is_running(monk
 def test_vehicle_report_lookup_can_be_cancelled(monkeypatch, tmp_path: Path) -> None:
     service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
     app = create_app(data_dir=tmp_path, service=service)
+    bootstrap_calls: list[int] = []
 
     monkeypatch.setattr(service_module, "fetch_otomoto_vehicle_identity", lambda url, **kwargs: _fake_identity())
+
+    def fake_bootstrap_session(self) -> object:
+        bootstrap_calls.append(id(self))
+        token = object()
+        self._bootstrap_context = token
+        return token
 
     def fake_fetch_report(self, registration_number: str, vin_number: str, first_registration_date: str) -> VehicleHistoryReport:
         time.sleep(0.2)
         raise RuntimeError("HistoriaPojazdu vehicle-data failed with HTTP 404: Not Found")
 
+    monkeypatch.setattr(service_module.VehicleHistoryClient, "bootstrap_session", fake_bootstrap_session)
     monkeypatch.setattr(service_module.VehicleHistoryClient, "fetch_report", fake_fetch_report)
 
     with TestClient(app) as client:
@@ -1856,6 +1920,7 @@ def test_vehicle_report_lookup_can_be_cancelled(monkeypatch, tmp_path: Path) -> 
         assert final_item["error"] == "Vehicle report lookup was cancelled."
         assert final_item["lookup"]["dateRange"] == {"from": "2014-01-01", "to": "2014-01-03"}
         assert final_item["lookupOptions"]["registrationNumber"] == "DLU8613F"
+        assert len(bootstrap_calls) == 1
 
 
 def test_vehicle_report_regenerate_is_blocked_while_lookup_is_cancelling(monkeypatch, tmp_path: Path) -> None:

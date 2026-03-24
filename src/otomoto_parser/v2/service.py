@@ -85,7 +85,9 @@ def _read_json(path: Path, default: Any) -> Any:
 
 def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    temp_path = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
+    temp_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    temp_path.replace(path)
 
 
 def _date_range_defaults() -> tuple[str, str]:
@@ -1157,6 +1159,39 @@ class ParserAppService:
         )
         total_days = (end - start).days + 1
         try:
+            try:
+                history_client.bootstrap_session()
+            except CancellationRequested:
+                self._write_cancelled_vehicle_report_status(
+                    status_path,
+                    identity=identity,
+                    registration_number=registration_number,
+                    date_from=date_from,
+                    date_to=date_to,
+                )
+                return
+            except RuntimeError as exc:
+                if cancel_event.is_set():
+                    self._write_cancelled_vehicle_report_status(
+                        status_path,
+                        identity=identity,
+                        registration_number=registration_number,
+                        date_from=date_from,
+                        date_to=date_to,
+                    )
+                    return
+                self._write_vehicle_report_status(
+                    status_path,
+                    status=REPORT_STATUS_FAILED,
+                    error=f"Could not fetch vehicle report data: {exc}",
+                    identity=identity,
+                    lookup={
+                        "registrationNumber": registration_number,
+                        "vin": identity.vin,
+                        "dateRange": {"from": date_from, "to": date_to},
+                    },
+                )
+                return
             for offset in range(max(0, total_days)):
                 if cancel_event.is_set():
                     self._write_cancelled_vehicle_report_status(
