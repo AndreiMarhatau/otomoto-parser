@@ -5,6 +5,7 @@ import threading
 import time
 from concurrent.futures import Future
 from pathlib import Path
+from typing import Any
 from urllib.error import URLError
 
 from fastapi.testclient import TestClient
@@ -178,6 +179,69 @@ def _fake_history_report() -> VehicleHistoryReport:
         carfax_data={"summary": {"entries": 1}},
         timeline_data={"timelineData": {"events": [{"type": "registration"}]}},
     )
+
+
+def _fake_listing_page(*_: object, **__: object) -> dict[str, Any]:
+    return {
+        "id": "6146171299",
+        "title": "Mercedes-Benz CLA 250",
+        "sellerLink": "https://example.com/dealer",
+        "description": "Detailed listing page payload",
+        "parametersDict": {
+            "vin": {"values": [{"value": "encrypted-vin"}]},
+            "registration": {"values": [{"value": "encrypted-reg"}]},
+        },
+    }
+
+
+def _fake_red_flag_analyzer(_: str, model_input: dict[str, Any], cancel_event: threading.Event) -> dict[str, Any]:
+    assert model_input["searchResultRaw"]["item_id"] == "4"
+    assert model_input["listingPageRaw"]["title"] == "Mercedes-Benz CLA 250"
+    assert model_input["vehicleReport"] is not None
+    if cancel_event.is_set():
+        raise service_module.CancellationRequested("cancelled")
+    return {
+        "summary": "Serious issues detected.",
+        "redFlags": [
+            "VIN appears in U.S. import context and should be checked for damage history.",
+            "Vehicle history sources show multiple external datasets, which merits manual verification.",
+        ],
+        "webSearchUsed": True,
+    }
+
+
+def _blocking_red_flag_analyzer(_: str, model_input: dict[str, Any], cancel_event: threading.Event) -> dict[str, Any]:
+    del model_input
+    if cancel_event.wait(5):
+        raise service_module.CancellationRequested("cancelled")
+    return {"summary": "late", "redFlags": [], "webSearchUsed": False}
+
+
+def _slow_success_red_flag_analyzer(_: str, model_input: dict[str, Any], cancel_event: threading.Event) -> dict[str, Any]:
+    del model_input
+    if cancel_event.wait(1):
+        raise service_module.CancellationRequested("cancelled")
+    return {"summary": "Completed", "redFlags": [], "webSearchUsed": False}
+
+
+def _slow_cancel_red_flag_analyzer(_: str, model_input: dict[str, Any], cancel_event: threading.Event) -> dict[str, Any]:
+    del model_input
+    if cancel_event.wait(5):
+        time.sleep(0.5)
+        raise service_module.CancellationRequested("cancelled")
+    return {"summary": "Completed", "redFlags": [], "webSearchUsed": False}
+
+
+def _fake_red_flag_analyzer_without_report(_: str, model_input: dict[str, Any], cancel_event: threading.Event) -> dict[str, Any]:
+    assert model_input["vehicleReport"] is None
+    assert model_input["reportSnapshotId"] == "missing"
+    if cancel_event.is_set():
+        raise service_module.CancellationRequested("cancelled")
+    return {
+        "summary": "Ran without report.",
+        "redFlags": ["No report was available during analysis."],
+        "webSearchUsed": False,
+    }
 
 
 class FakeParserRunner:
@@ -483,6 +547,66 @@ def _wait_for_vehicle_report_status(
             return item
         time.sleep(0.05)
     raise AssertionError(f"vehicle report lookup did not reach status {expected_status}")
+
+
+def _wait_for_red_flag_status(
+    client: TestClient,
+    request_id: str,
+    listing_id: str,
+    expected_status: str,
+    *,
+    timeout_s: float = 10.0,
+) -> dict:
+    deadline = time.time() + timeout_s
+    last_item = None
+    while time.time() < deadline:
+        response = client.get(f"/api/requests/{request_id}/listings/{listing_id}/red-flags")
+        response.raise_for_status()
+        item = response.json()["item"]
+        last_item = item
+        if item.get("status") == expected_status:
+            return item
+        time.sleep(0.05)
+    raise AssertionError(f"red-flag analysis did not reach status {expected_status}; last item: {last_item}")
+
+
+def _wait_for_red_flag_progress(
+    client: TestClient,
+    request_id: str,
+    listing_id: str,
+    expected_progress: str,
+    *,
+    timeout_s: float = 10.0,
+) -> dict:
+    deadline = time.time() + timeout_s
+    last_item = None
+    while time.time() < deadline:
+        response = client.get(f"/api/requests/{request_id}/listings/{listing_id}/red-flags")
+        response.raise_for_status()
+        item = response.json()["item"]
+        last_item = item
+        if item.get("status") == "running" and item.get("progressMessage") == expected_progress:
+            return item
+        time.sleep(0.05)
+    raise AssertionError(f"red-flag analysis did not reach progress {expected_progress}; last item: {last_item}")
+
+
+def _wait_for_red_flag_rerun_start(client: TestClient, request_id: str, listing_id: str, *, timeout_s: float = 10.0):
+    deadline = time.time() + timeout_s
+    last_response = None
+    while time.time() < deadline:
+        response = client.post(f"/api/requests/{request_id}/listings/{listing_id}/red-flags")
+        last_response = response
+        if response.status_code == 200:
+            return response
+        time.sleep(0.05)
+    detail = None
+    if last_response is not None:
+        try:
+            detail = last_response.json()
+        except Exception:  # noqa: BLE001
+            detail = last_response.text
+    raise AssertionError(f"red-flag analysis rerun did not start; last response: {detail}")
 
 
 def test_build_categorized_payload_assigns_expected_categories(tmp_path: Path) -> None:
@@ -885,6 +1009,342 @@ def test_vehicle_report_endpoint_fetches_and_caches_report(monkeypatch, tmp_path
         item = payload["items"][0]
         assert item["vehicleReport"]["cached"] is True
         assert item["vehicleReport"]["retrievedAt"]
+
+
+def test_settings_endpoint_reports_environment_key_and_stores_override(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "env-test-key-1234")
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+
+    with TestClient(app) as client:
+        response = client.get("/api/settings")
+        assert response.status_code == 200
+        assert response.json()["item"] == {
+            "openaiApiKeyConfigured": True,
+            "openaiApiKeySource": "environment",
+            "openaiApiKeyMasked": "env-...1234",
+            "openaiApiKeyStored": False,
+        }
+
+        update = client.put("/api/settings", json={"openaiApiKey": "stored-test-key-9999"})
+        assert update.status_code == 200
+        assert update.json()["item"]["openaiApiKeySource"] == "stored"
+        assert update.json()["item"]["openaiApiKeyMasked"] == "stor...9999"
+        assert update.json()["item"]["openaiApiKeyStored"] is True
+
+
+def test_red_flag_analysis_endpoint_runs_with_listing_page_report_and_web_search(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "env-test-key-1234")
+    service = ParserAppService(
+        tmp_path,
+        parser_runner=FakeParserRunner(),
+        listing_page_fetcher=_fake_listing_page,
+        red_flag_analyzer=_fake_red_flag_analyzer,
+        parser_options={},
+    )
+    app = create_app(data_dir=tmp_path, service=service)
+
+    monkeypatch.setattr(
+        service_module,
+        "fetch_otomoto_vehicle_identity",
+        lambda url, **kwargs: _fake_identity(),
+    )
+    monkeypatch.setattr(service_module.VehicleHistoryClient, "fetch_report", lambda self, *args: _fake_history_report())
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        report_response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        assert report_response.status_code == 200
+        assert report_response.json()["item"]["report"] is not None
+
+        start_response = client.post(f"/api/requests/{request_id}/listings/4/red-flags")
+        assert start_response.status_code == 200
+        item = _wait_for_red_flag_status(client, request_id, "4", "success")
+        assert item["analysis"]["summary"] == "Serious issues detected."
+        assert len(item["analysis"]["redFlags"]) == 2
+        assert item["analysis"]["webSearchUsed"] is True
+        assert item["reportReady"] is True
+        assert item["model"] == "gpt-5.4"
+
+
+def test_red_flag_analysis_becomes_stale_after_report_is_fetched(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "env-test-key-1234")
+    service = ParserAppService(
+        tmp_path,
+        parser_runner=FakeParserRunner(),
+        listing_page_fetcher=_fake_listing_page,
+        red_flag_analyzer=_fake_red_flag_analyzer_without_report,
+        parser_options={},
+    )
+    app = create_app(data_dir=tmp_path, service=service)
+
+    monkeypatch.setattr(service_module, "fetch_otomoto_vehicle_identity", lambda url, **kwargs: _fake_identity())
+    monkeypatch.setattr(service_module.VehicleHistoryClient, "fetch_report", lambda self, *args: _fake_history_report())
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        start_response = client.post(f"/api/requests/{request_id}/listings/4/red-flags")
+        assert start_response.status_code == 200
+        item = _wait_for_red_flag_status(client, request_id, "4", "success")
+        assert item["reportReady"] is False
+        assert item["reportSnapshotId"] == "missing"
+
+        report_response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        assert report_response.status_code == 200
+        report_snapshot_id = report_response.json()["item"]["reportSnapshotId"]
+
+        stale_response = client.get(f"/api/requests/{request_id}/listings/4/red-flags")
+        assert stale_response.status_code == 200
+        stale_item = stale_response.json()["item"]
+        assert stale_item["status"] == "idle"
+        assert stale_item["stale"] is True
+        assert stale_item["analysis"] is None
+        assert stale_item["reportSnapshotId"] == report_snapshot_id
+        assert stale_item["analysisReportSnapshotId"] == "missing"
+        assert stale_item["error"] == "Analysis is outdated because the vehicle report changed. Run it again."
+
+
+def test_red_flag_analysis_becomes_stale_after_report_regeneration(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "env-test-key-1234")
+    service = ParserAppService(
+        tmp_path,
+        parser_runner=FakeParserRunner(),
+        listing_page_fetcher=_fake_listing_page,
+        red_flag_analyzer=_fake_red_flag_analyzer,
+        parser_options={},
+    )
+    app = create_app(data_dir=tmp_path, service=service)
+    fetch_count = {"value": 0}
+
+    monkeypatch.setattr(service_module, "fetch_otomoto_vehicle_identity", lambda url, **kwargs: _fake_identity())
+
+    def fake_fetch_report(self, *args) -> VehicleHistoryReport:
+        fetch_count["value"] += 1
+        report = _fake_history_report()
+        report.autodna_data = {"summary": {"events": fetch_count["value"]}}
+        return report
+
+    monkeypatch.setattr(service_module.VehicleHistoryClient, "fetch_report", fake_fetch_report)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        first_report = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report").json()["item"]
+        first_snapshot = first_report["reportSnapshotId"]
+
+        analysis_start = client.post(f"/api/requests/{request_id}/listings/4/red-flags")
+        assert analysis_start.status_code == 200
+        analysis_item = _wait_for_red_flag_status(client, request_id, "4", "success")
+        assert analysis_item["reportSnapshotId"] == first_snapshot
+
+        regenerated_report = client.post(f"/api/requests/{request_id}/listings/4/vehicle-report/regenerate").json()["item"]
+        second_snapshot = regenerated_report["reportSnapshotId"]
+        assert second_snapshot != first_snapshot
+
+        stale_response = client.get(f"/api/requests/{request_id}/listings/4/red-flags")
+        stale_item = stale_response.json()["item"]
+        assert stale_item["status"] == "idle"
+        assert stale_item["stale"] is True
+        assert stale_item["analysis"] is None
+        assert stale_item["reportSnapshotId"] == second_snapshot
+        assert stale_item["analysisReportSnapshotId"] == first_snapshot
+        assert stale_item["error"] == "Analysis is outdated because the vehicle report changed. Run it again."
+
+
+def test_red_flag_analysis_can_be_cancelled(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "env-test-key-1234")
+    service = ParserAppService(
+        tmp_path,
+        parser_runner=FakeParserRunner(),
+        listing_page_fetcher=_fake_listing_page,
+        red_flag_analyzer=_blocking_red_flag_analyzer,
+        parser_options={},
+    )
+    app = create_app(data_dir=tmp_path, service=service)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        start_response = client.post(f"/api/requests/{request_id}/listings/4/red-flags")
+        assert start_response.status_code == 200
+        _wait_for_red_flag_progress(client, request_id, "4", "Running GPT-5.4 red-flag analysis...")
+
+        cancel_response = client.post(f"/api/requests/{request_id}/listings/4/red-flags/cancel")
+        assert cancel_response.status_code == 200
+        cancel_item = cancel_response.json()["item"]
+        assert cancel_item["status"] in {"cancelling", "cancelled"}
+        current = client.get(f"/api/requests/{request_id}/listings/4/red-flags").json()["item"]
+        assert current["status"] in {"cancelling", "cancelled"}
+        assert current["analysis"] is None
+
+
+def test_red_flag_analysis_can_rerun_after_cancel_finishes(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "env-test-key-1234")
+    service = ParserAppService(
+        tmp_path,
+        parser_runner=FakeParserRunner(),
+        listing_page_fetcher=_fake_listing_page,
+        red_flag_analyzer=_blocking_red_flag_analyzer,
+        parser_options={},
+    )
+    app = create_app(data_dir=tmp_path, service=service)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+        monkeypatch.setattr(
+            service_module,
+            "fetch_otomoto_vehicle_identity",
+            lambda url, **kwargs: _fake_identity(),
+        )
+        monkeypatch.setattr(service_module.VehicleHistoryClient, "fetch_report", lambda self, *args: _fake_history_report())
+        report_response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        assert report_response.status_code == 200
+
+        assert client.post(f"/api/requests/{request_id}/listings/4/red-flags").status_code == 200
+        _wait_for_red_flag_progress(client, request_id, "4", "Running GPT-5.4 red-flag analysis...")
+        cancel_response = client.post(f"/api/requests/{request_id}/listings/4/red-flags/cancel")
+        assert cancel_response.status_code == 200
+        service.red_flag_analyzer = _fake_red_flag_analyzer
+
+        start_response = _wait_for_red_flag_rerun_start(client, request_id, "4")
+        assert start_response.status_code == 200
+        item = _wait_for_red_flag_status(client, request_id, "4", "success")
+        assert item["analysis"]["summary"] == "Serious issues detected."
+
+
+def test_red_flag_analysis_cannot_restart_while_previous_run_is_cancelling(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "env-test-key-1234")
+    service = ParserAppService(
+        tmp_path,
+        parser_runner=FakeParserRunner(),
+        listing_page_fetcher=_fake_listing_page,
+        red_flag_analyzer=_slow_cancel_red_flag_analyzer,
+        parser_options={},
+    )
+    app = create_app(data_dir=tmp_path, service=service)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        assert client.post(f"/api/requests/{request_id}/listings/4/red-flags").status_code == 200
+        _wait_for_red_flag_progress(client, request_id, "4", "Running GPT-5.4 red-flag analysis...")
+
+        cancel_response = client.post(f"/api/requests/{request_id}/listings/4/red-flags/cancel")
+        assert cancel_response.status_code == 200
+        assert cancel_response.json()["item"]["status"] == "cancelling"
+
+        blocked_rerun = client.post(f"/api/requests/{request_id}/listings/4/red-flags")
+        assert blocked_rerun.status_code == 409
+        assert blocked_rerun.json()["detail"] == "Red-flag analysis cancellation is still in progress for this listing."
+
+
+def test_delete_request_is_blocked_while_red_flag_analysis_is_running(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "env-test-key-1234")
+    service = ParserAppService(
+        tmp_path,
+        parser_runner=FakeParserRunner(),
+        listing_page_fetcher=_fake_listing_page,
+        red_flag_analyzer=_slow_success_red_flag_analyzer,
+        parser_options={},
+    )
+    app = create_app(data_dir=tmp_path, service=service)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        ready_item = _wait_until_ready(client, request_id)
+
+        assert client.post(f"/api/requests/{request_id}/listings/4/red-flags").status_code == 200
+        _wait_for_red_flag_progress(client, request_id, "4", "Running GPT-5.4 red-flag analysis...")
+
+        delete_response = client.delete(f"/api/requests/{request_id}")
+        assert delete_response.status_code == 409
+        assert delete_response.json()["detail"] == "Cannot delete a request while a vehicle report lookup or red-flag analysis is still running."
+
+        _wait_for_red_flag_status(client, request_id, "4", "success")
+
+        delete_response = client.delete(f"/api/requests/{request_id}")
+        assert delete_response.status_code == 204
+
+        detail_response = client.get(f"/api/requests/{request_id}")
+        assert detail_response.status_code == 404
+
+        run_dir = Path(ready_item["runDir"])
+        assert not run_dir.exists()
+
+
+def test_vehicle_report_regenerate_is_blocked_while_red_flag_analysis_is_running(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "env-test-key-1234")
+    service = ParserAppService(
+        tmp_path,
+        parser_runner=FakeParserRunner(),
+        listing_page_fetcher=_fake_listing_page,
+        red_flag_analyzer=_slow_success_red_flag_analyzer,
+        parser_options={},
+    )
+    app = create_app(data_dir=tmp_path, service=service)
+
+    monkeypatch.setattr(service_module, "fetch_otomoto_vehicle_identity", lambda url, **kwargs: _fake_identity())
+    monkeypatch.setattr(service_module.VehicleHistoryClient, "fetch_report", lambda self, *args: _fake_history_report())
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        initial_report = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        assert initial_report.status_code == 200
+
+        analysis_start = client.post(f"/api/requests/{request_id}/listings/4/red-flags")
+        assert analysis_start.status_code == 200
+        _wait_for_red_flag_progress(client, request_id, "4", "Running GPT-5.4 red-flag analysis...")
+
+        regenerate_response = client.post(f"/api/requests/{request_id}/listings/4/vehicle-report/regenerate")
+        assert regenerate_response.status_code == 502
+        assert regenerate_response.json()["detail"] == "Cannot regenerate the vehicle report while red-flag analysis is still running for this listing."
+
+        _wait_for_red_flag_status(client, request_id, "4", "success")
+
+        regenerate_response = client.post(f"/api/requests/{request_id}/listings/4/vehicle-report/regenerate")
+        assert regenerate_response.status_code == 200
 
 
 def test_results_endpoint_returns_only_requested_page_for_selected_category(tmp_path: Path) -> None:

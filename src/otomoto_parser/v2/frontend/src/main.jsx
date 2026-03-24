@@ -124,6 +124,16 @@ function IconRefresh() {
   );
 }
 
+function IconAlert() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 3l9 16H3l9-16z" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+      <path d="M12 9v4.5" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+      <circle cx="12" cy="16.8" r="1" fill="currentColor" />
+    </svg>
+  );
+}
+
 function IconClose() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -467,9 +477,14 @@ function Shell({ title, children }) {
           <p className="eyebrow">Otomoto Parser</p>
           <h1>{title}</h1>
         </div>
-        <Link to="/" className="hero-link">
-          All requests
-        </Link>
+        <div className="hero-links">
+          <Link to="/" className="hero-link">
+            All requests
+          </Link>
+          <Link to="/settings" className="hero-link">
+            Settings
+          </Link>
+        </div>
       </header>
       {children}
     </div>
@@ -634,6 +649,107 @@ function RequestListPage() {
             ))}
           </div>
         </div>
+      </section>
+    </Shell>
+  );
+}
+
+function SettingsPage() {
+  const { data, loading, error, reload } = usePolling(() => api("/api/settings"), false);
+  const settings = data?.item;
+  const [openaiApiKey, setOpenaiApiKey] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const [saveError, setSaveError] = React.useState(null);
+
+  async function submit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await api("/api/settings", {
+        method: "PUT",
+        body: JSON.stringify({ openaiApiKey }),
+      });
+      setOpenaiApiKey("");
+      await reload();
+    } catch (submitError) {
+      setSaveError(submitError.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function clearKey() {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await api("/api/settings", {
+        method: "PUT",
+        body: JSON.stringify({ openaiApiKey: "" }),
+      });
+      setOpenaiApiKey("");
+      await reload();
+    } catch (submitError) {
+      setSaveError(submitError.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Shell title="Settings">
+      <Breadcrumbs items={[{ label: "Requests", to: "/" }, { label: "Settings" }]} />
+      <section className="panel settings-panel">
+        <div>
+          <h2>OpenAI</h2>
+          <p className="muted">
+            Red-flag analysis uses GPT-5.4 with web search. Stored keys override `OPENAI_API_KEY` from the server environment.
+          </p>
+        </div>
+        {loading ? <p className="muted">Loading settings...</p> : null}
+        {error ? <p className="error-text">{error.message}</p> : null}
+        {settings ? (
+          <div className="settings-status-grid">
+            <div className="metric">
+              <span>Configured</span>
+              <strong>{settings.openaiApiKeyConfigured ? "Yes" : "No"}</strong>
+            </div>
+            <div className="metric">
+              <span>Source</span>
+              <strong>{settings.openaiApiKeySource || "None"}</strong>
+            </div>
+            <div className="metric">
+              <span>Active key</span>
+              <strong>{settings.openaiApiKeyMasked || "Not configured"}</strong>
+            </div>
+          </div>
+        ) : null}
+        <form className="request-form" onSubmit={submit}>
+          <label className="report-form-field">
+            <span>OpenAI API key</span>
+            <input
+              type="password"
+              value={openaiApiKey}
+              onChange={(event) => setOpenaiApiKey(event.target.value)}
+              placeholder="sk-..."
+              autoComplete="off"
+            />
+          </label>
+          <div className="form-actions">
+            <button type="submit" disabled={saving}>
+              {saving ? "Saving..." : "Save key"}
+            </button>
+            <button
+              type="button"
+              className="button-secondary"
+              disabled={saving || !(settings?.openaiApiKeyStored || openaiApiKey)}
+              onClick={clearKey}
+            >
+              Clear stored key
+            </button>
+          </div>
+          {saveError ? <p className="error-text">{saveError}</p> : null}
+        </form>
       </section>
     </Shell>
   );
@@ -959,7 +1075,7 @@ function DataTree({ label, value }) {
   );
 }
 
-function VehicleReportModal({ state, onClose, onRegenerate, onLookup, onCancelLookup }) {
+function VehicleReportModal({ state, redFlagState, settings, onClose, onRegenerate, onLookup, onCancelLookup, onStartRedFlags, onCancelRedFlags }) {
   const item = state?.item || {};
   const loading = state?.loading || false;
   const regenerating = state?.regenerating || false;
@@ -973,6 +1089,11 @@ function VehicleReportModal({ state, onClose, onRegenerate, onLookup, onCancelLo
   const retrievedAt = data?.retrievedAt ? new Date(data.retrievedAt).toLocaleString() : null;
   const lookupOptions = data?.lookupOptions || {};
   const activeLookup = data?.lookup || {};
+  const redFlagData = redFlagState?.data || null;
+  const redFlagError = redFlagState?.error || null;
+  const redFlagBusy = redFlagState?.loading || redFlagState?.running || redFlagState?.cancelling || ["running", "cancelling"].includes(redFlagData?.status) || false;
+  const apiKeyConfigured = settings?.openaiApiKeyConfigured || false;
+  const redFlagTooltip = apiKeyConfigured ? "Find serious red flags with GPT-5.4" : "Set an OpenAI API key in Settings to enable red-flag analysis";
   const [registrationNumber, setRegistrationNumber] = React.useState("");
   const [dateFrom, setDateFrom] = React.useState("");
   const [dateTo, setDateTo] = React.useState("");
@@ -1045,7 +1166,7 @@ function VehicleReportModal({ state, onClose, onRegenerate, onLookup, onCancelLo
               title="Regenerate report"
               tone="secondary"
               onClick={onRegenerate}
-              disabled={loading || regenerating || submittingLookup || cancellingLookup || data?.status === "running" || data?.status === "cancelling"}
+              disabled={loading || regenerating || submittingLookup || cancellingLookup || redFlagBusy || data?.status === "running" || data?.status === "cancelling"}
             >
               <IconRefresh />
             </IconButton>
@@ -1088,6 +1209,66 @@ function VehicleReportModal({ state, onClose, onRegenerate, onLookup, onCancelLo
         ) : null}
         {error ? <p className="error-text">{error}</p> : null}
         {!error && data?.error ? <p className="error-text">{data.error}</p> : null}
+
+        <section className="report-section">
+          <div className="analysis-section-head">
+            <div>
+              <h3>Find red flags</h3>
+              <p className="muted">GPT-5.4 reviews the listing, the detail page, and the report when it is ready.</p>
+            </div>
+            <div className="analysis-actions">
+              <span title={redFlagTooltip}>
+                <button
+                  type="button"
+                  onClick={onStartRedFlags}
+                  disabled={!apiKeyConfigured || redFlagBusy || loading || regenerating || submittingLookup || cancellingLookup || data?.status === "running" || data?.status === "cancelling"}
+                >
+                  {redFlagBusy
+                    ? "Finding..."
+                    : redFlagData?.analysis
+                      ? "Run again"
+                      : "Find red flags"}
+                </button>
+              </span>
+              {redFlagData?.status === "running" || redFlagData?.status === "cancelling" ? (
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={onCancelRedFlags}
+                  disabled={redFlagState?.cancelling || redFlagData?.status === "cancelling"}
+                >
+                  {redFlagState?.cancelling || redFlagData?.status === "cancelling" ? "Cancelling..." : "Cancel analysis"}
+                </button>
+              ) : null}
+            </div>
+          </div>
+          {!data?.report ? (
+            <div className="warning-box">
+              <IconAlert />
+              <span>Analysis works better after the vehicle report is ready.</span>
+            </div>
+          ) : null}
+          {redFlagBusy && redFlagData?.progressMessage ? <p className="progress-box">{redFlagData.progressMessage}</p> : null}
+          {redFlagError ? <p className="error-text">{redFlagError}</p> : null}
+          {!redFlagError && redFlagData?.error ? <p className="error-text">{redFlagData.error}</p> : null}
+          {redFlagData?.analysis ? (
+            <div className="analysis-result">
+              <p><strong>{redFlagData.analysis.summary}</strong></p>
+              {redFlagData.analysis.redFlags.length ? (
+                <ul className="analysis-list">
+                  {redFlagData.analysis.redFlags.map((flag) => (
+                    <li key={flag}>{flag}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="muted">No serious red flags found.</p>
+              )}
+              <p className="muted">
+                {redFlagData.analysis.webSearchUsed ? "Used web search for VIN-related checks." : "Did not need web search for this run."}
+              </p>
+            </div>
+          ) : null}
+        </section>
 
         {showLookupForm ? (
           <section className="report-section">
@@ -1138,43 +1319,46 @@ function VehicleReportModal({ state, onClose, onRegenerate, onLookup, onCancelLo
         ) : null}
 
         {data?.report ? (
-          <div className="report-layout">
-            <section className="report-section">
-              <h3>Summary</h3>
-              <DataPairs entries={summaryEntries} />
-            </section>
+          <details className="report-details">
+            <summary>View report</summary>
+            <div className="report-layout">
+              <section className="report-section">
+                <h3>Summary</h3>
+                <DataPairs entries={summaryEntries} />
+              </section>
 
-            <section className="report-section">
-              <h3>Source status</h3>
-              <DataPairs
-                entries={[
-                  { label: "Historia Pojazdu API", value: report.api_version || "—" },
-                  { label: "AutoDNA payload", value: summary.autodnaAvailable ? "Available" : summary.autodnaUnavailable ? "Unavailable" : "Empty" },
-                  { label: "Carfax payload", value: summary.carfaxAvailable ? "Available" : summary.carfaxUnavailable ? "Unavailable" : "Empty" },
-                  { label: "Advert id", value: identity.advertId },
-                ]}
-              />
-            </section>
+              <section className="report-section">
+                <h3>Source status</h3>
+                <DataPairs
+                  entries={[
+                    { label: "Historia Pojazdu API", value: report.api_version || "—" },
+                    { label: "AutoDNA payload", value: summary.autodnaAvailable ? "Available" : summary.autodnaUnavailable ? "Unavailable" : "Empty" },
+                    { label: "Carfax payload", value: summary.carfaxAvailable ? "Available" : summary.carfaxUnavailable ? "Unavailable" : "Empty" },
+                    { label: "Advert id", value: identity.advertId },
+                  ]}
+                />
+              </section>
 
-            <details className="report-details" open>
-              <summary>Technical data</summary>
-              <DataTree label="Technical data" value={report.technical_data} />
-            </details>
+              <details className="report-details">
+                <summary>Technical data</summary>
+                <DataTree label="Technical data" value={report.technical_data} />
+              </details>
 
-            <details className="report-details">
-              <summary>AutoDNA</summary>
-              <DataTree label="AutoDNA" value={report.autodna_data} />
-            </details>
+              <details className="report-details">
+                <summary>AutoDNA</summary>
+                <DataTree label="AutoDNA" value={report.autodna_data} />
+              </details>
 
-            <details className="report-details">
-              <summary>Carfax</summary>
-              <DataTree label="Carfax" value={report.carfax_data} />
-            </details>
-            <details className="report-details">
-              <summary>Timeline</summary>
-              <DataTree label="Timeline" value={report.timeline_data} />
-            </details>
-          </div>
+              <details className="report-details">
+                <summary>Carfax</summary>
+                <DataTree label="Carfax" value={report.carfax_data} />
+              </details>
+              <details className="report-details">
+                <summary>Timeline</summary>
+                <DataTree label="Timeline" value={report.timeline_data} />
+              </details>
+            </div>
+          </details>
         ) : null}
       </div>
     </div>
@@ -1291,6 +1475,7 @@ function RequestResultsPage() {
   const { requestId } = useParams();
   const requestLoader = React.useCallback(() => api(`/api/requests/${requestId}`), [requestId]);
   const { data: requestData, loading: requestLoading } = usePolling(requestLoader, true);
+  const { data: settingsData } = usePolling(() => api("/api/settings"), false);
   const request = requestData?.item;
   const [results, setResults] = React.useState(null);
   const [resultsError, setResultsError] = React.useState(null);
@@ -1299,11 +1484,13 @@ function RequestResultsPage() {
   const [currentPage, setCurrentPage] = React.useState(1);
   const [locationPreview, setLocationPreview] = React.useState(null);
   const [vehicleReportState, setVehicleReportState] = React.useState(null);
+  const [redFlagState, setRedFlagState] = React.useState(null);
   const [geolocationState, setGeolocationState] = React.useState({ status: "idle", coords: null });
   const [locationCache, setLocationCache] = React.useState({});
   const [reloadToken, setReloadToken] = React.useState(0);
   const [categoryBusyByListing, setCategoryBusyByListing] = React.useState({});
   const vehicleReportRequestRef = React.useRef(0);
+  const redFlagRequestRef = React.useRef(0);
   const listTopRef = React.useRef(null);
   const previousPageRef = React.useRef(null);
   const paginationScrollRafRef = React.useRef(null);
@@ -1312,11 +1499,27 @@ function RequestResultsPage() {
     setPageSize(pageSizeOptions[0]);
     setCurrentPage(1);
     setReloadToken(0);
+    setVehicleReportState(null);
+    setRedFlagState(null);
     previousPageRef.current = null;
     if (paginationScrollRafRef.current !== null) {
       window.cancelAnimationFrame(paginationScrollRafRef.current);
       paginationScrollRafRef.current = null;
     }
+  }, [requestId]);
+
+  const loadRedFlagState = React.useCallback(async (item, requestToken = null) => {
+    const payload = await api(`/api/requests/${requestId}/listings/${item.id}/red-flags`);
+    if (requestToken !== null && redFlagRequestRef.current !== requestToken) {
+      return null;
+    }
+    setRedFlagState((current) => {
+      if (!current || current.item.id !== item.id) {
+        return current;
+      }
+      return { ...current, loading: false, running: false, cancelling: false, error: null, data: payload.item };
+    });
+    return payload.item;
   }, [requestId]);
 
   const bumpResultsReload = React.useCallback(() => {
@@ -1464,7 +1667,10 @@ function RequestResultsPage() {
   const openVehicleReport = React.useCallback(async (item) => {
     const requestToken = vehicleReportRequestRef.current + 1;
     vehicleReportRequestRef.current = requestToken;
+    const analysisToken = redFlagRequestRef.current + 1;
+    redFlagRequestRef.current = analysisToken;
     setVehicleReportState({ item, loading: true, regenerating: false, submittingLookup: false, cancellingLookup: false, error: null, data: null });
+    setRedFlagState({ item, loading: true, running: false, cancelling: false, error: null, data: null });
     try {
       const payload = await api(`/api/requests/${requestId}/listings/${item.id}/vehicle-report`);
       if (vehicleReportRequestRef.current !== requestToken) {
@@ -1472,14 +1678,16 @@ function RequestResultsPage() {
       }
       setVehicleReportState({ item, loading: false, regenerating: false, submittingLookup: false, cancellingLookup: false, error: null, data: payload.item });
       updateVehicleReportResultItem(item.id, payload.item);
+      void loadRedFlagState(item, analysisToken);
     } catch (error) {
       if (vehicleReportRequestRef.current !== requestToken) {
         return;
       }
       setVehicleReportState({ item, loading: false, regenerating: false, submittingLookup: false, cancellingLookup: false, error: error.message, data: null });
       updateVehicleReportResultItem(item.id, null, error.message);
+      void loadRedFlagState(item, analysisToken);
     }
-  }, [requestId, updateVehicleReportResultItem]);
+  }, [loadRedFlagState, requestId, updateVehicleReportResultItem]);
 
   const regenerateVehicleReport = React.useCallback(async () => {
     if (!vehicleReportState?.item) {
@@ -1560,6 +1768,50 @@ function RequestResultsPage() {
     }
   }, [requestId, updateVehicleReportResultItem, vehicleReportState]);
 
+  const startRedFlagAnalysis = React.useCallback(async () => {
+    if (!redFlagState?.item) {
+      return;
+    }
+    const item = redFlagState.item;
+    const requestToken = redFlagRequestRef.current + 1;
+    redFlagRequestRef.current = requestToken;
+    setRedFlagState((current) => ({ ...current, loading: false, running: true, cancelling: false, error: null }));
+    try {
+      const payload = await api(`/api/requests/${requestId}/listings/${item.id}/red-flags`, { method: "POST" });
+      if (redFlagRequestRef.current !== requestToken) {
+        return;
+      }
+      setRedFlagState({ item, loading: false, running: false, cancelling: false, error: null, data: payload.item });
+    } catch (error) {
+      if (redFlagRequestRef.current !== requestToken) {
+        return;
+      }
+      setRedFlagState((current) => ({ ...current, running: false, error: error.message }));
+    }
+  }, [redFlagState, requestId]);
+
+  const cancelRedFlagAnalysis = React.useCallback(async () => {
+    if (!redFlagState?.item) {
+      return;
+    }
+    const item = redFlagState.item;
+    const requestToken = redFlagRequestRef.current + 1;
+    redFlagRequestRef.current = requestToken;
+    setRedFlagState((current) => ({ ...current, cancelling: true, error: null }));
+    try {
+      const payload = await api(`/api/requests/${requestId}/listings/${item.id}/red-flags/cancel`, { method: "POST" });
+      if (redFlagRequestRef.current !== requestToken) {
+        return;
+      }
+      setRedFlagState({ item, loading: false, running: false, cancelling: false, error: null, data: payload.item });
+    } catch (error) {
+      if (redFlagRequestRef.current !== requestToken) {
+        return;
+      }
+      setRedFlagState((current) => ({ ...current, cancelling: false, error: error.message }));
+    }
+  }, [redFlagState, requestId]);
+
   React.useEffect(() => {
     if (
       !vehicleReportState?.item
@@ -1599,6 +1851,64 @@ function RequestResultsPage() {
       window.clearInterval(timer);
     };
   }, [requestId, updateVehicleReportResultItem, vehicleReportState]);
+
+  React.useEffect(() => {
+    if (!redFlagState?.item || !["running", "cancelling"].includes(redFlagState.data?.status)) {
+      return undefined;
+    }
+    let active = true;
+    const timer = window.setInterval(async () => {
+      try {
+        const payload = await api(`/api/requests/${requestId}/listings/${redFlagState.item.id}/red-flags`);
+        if (!active) {
+          return;
+        }
+        setRedFlagState((current) => {
+          if (!current || current.item.id !== redFlagState.item.id) {
+            return current;
+          }
+          return { ...current, loading: false, running: false, cancelling: false, error: null, data: payload.item };
+        });
+      } catch (error) {
+        if (!active) {
+          return;
+        }
+        setRedFlagState((current) => (current ? { ...current, running: false, cancelling: false, error: error.message } : current));
+      }
+    }, 1500);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [redFlagState, requestId]);
+
+  React.useEffect(() => {
+    if (
+      !vehicleReportState?.item
+      || vehicleReportState.loading
+      || vehicleReportState.regenerating
+      || vehicleReportState.submittingLookup
+      || vehicleReportState.cancellingLookup
+    ) {
+      return;
+    }
+    if (redFlagState?.item?.id !== vehicleReportState.item.id) {
+      return;
+    }
+    void loadRedFlagState(vehicleReportState.item);
+  }, [
+    loadRedFlagState,
+    redFlagState?.item?.id,
+    vehicleReportState?.item,
+    vehicleReportState?.loading,
+    vehicleReportState?.regenerating,
+    vehicleReportState?.submittingLookup,
+    vehicleReportState?.cancellingLookup,
+    vehicleReportState?.data?.retrievedAt,
+    vehicleReportState?.data?.reportSnapshotId,
+    vehicleReportState?.data?.status,
+    vehicleReportState?.data?.error,
+  ]);
 
   React.useEffect(() => {
     let active = true;
@@ -1911,13 +2221,19 @@ function RequestResultsPage() {
       />
       <VehicleReportModal
         state={vehicleReportState}
+        redFlagState={redFlagState}
+        settings={settingsData?.item}
         onClose={() => {
           vehicleReportRequestRef.current += 1;
+          redFlagRequestRef.current += 1;
           setVehicleReportState(null);
+          setRedFlagState(null);
         }}
         onRegenerate={regenerateVehicleReport}
         onLookup={submitVehicleReportLookup}
         onCancelLookup={cancelVehicleReportLookup}
+        onStartRedFlags={startRedFlagAnalysis}
+        onCancelRedFlags={cancelRedFlagAnalysis}
       />
     </Shell>
   );
@@ -1928,6 +2244,7 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<RequestListPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
         <Route path="/requests/:requestId" element={<RequestDetailPage />} />
         <Route path="/requests/:requestId/results" element={<RequestResultsPage />} />
       </Routes>
