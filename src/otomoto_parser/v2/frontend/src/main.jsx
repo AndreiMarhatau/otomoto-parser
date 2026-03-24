@@ -471,12 +471,17 @@ async function api(path, options = {}) {
   return response;
 }
 
-function usePolling(loader, enabled) {
+function usePolling(loader, enabled, reloadKey) {
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
+  const loaderRef = React.useRef(loader);
+
+  React.useEffect(() => {
+    loaderRef.current = loader;
+  }, [loader]);
 
   const load = React.useCallback(async () => {
     try {
-      const data = await loader();
+      const data = await loaderRef.current();
       setState({ loading: false, error: null, data });
       return data;
     } catch (error) {
@@ -490,7 +495,7 @@ function usePolling(loader, enabled) {
 
     async function run() {
       try {
-        const data = await loader();
+        const data = await loaderRef.current();
         if (active) {
           setState({ loading: false, error: null, data });
         }
@@ -513,7 +518,7 @@ function usePolling(loader, enabled) {
       active = false;
       window.clearInterval(timer);
     };
-  }, [enabled, loader]);
+  }, [enabled, reloadKey]);
 
   return { ...state, reload: load };
 }
@@ -571,7 +576,7 @@ function RequestListPage() {
   const [url, setUrl] = React.useState("");
   const [creating, setCreating] = React.useState(false);
   const [error, setError] = React.useState(null);
-  const { data, loading, reload } = usePolling(() => api("/api/requests"), true);
+  const { data, loading, reload } = usePolling(() => api("/api/requests"), true, "/api/requests");
 
   async function submit(event) {
     event.preventDefault();
@@ -703,8 +708,8 @@ function RequestListPage() {
   );
 }
 
-function SettingsPage() {
-  const { data, loading, error, reload } = usePolling(() => api("/api/settings"), false);
+export function SettingsPage() {
+  const { data, loading, error, reload } = usePolling(() => api("/api/settings"), false, "/api/settings");
   const settings = data?.item;
   const [openaiApiKey, setOpenaiApiKey] = React.useState("");
   const [saving, setSaving] = React.useState(false);
@@ -804,11 +809,11 @@ function SettingsPage() {
   );
 }
 
-function RequestDetailPage() {
+export function RequestDetailPage() {
   const { requestId } = useParams();
   const navigate = useNavigate();
   const loader = React.useCallback(() => api(`/api/requests/${requestId}`), [requestId]);
-  const { data, loading, error, reload } = usePolling(loader, true);
+  const { data, loading, error, reload } = usePolling(loader, true, `/api/requests/${requestId}`);
   const item = data?.item;
 
   async function trigger(path) {
@@ -1554,8 +1559,8 @@ function ListingCard({ item, assignableCategories, categoryBusy, onAssignCategor
 export function RequestResultsPage() {
   const { requestId } = useParams();
   const requestLoader = React.useCallback(() => api(`/api/requests/${requestId}`), [requestId]);
-  const { data: requestData, loading: requestLoading } = usePolling(requestLoader, true);
-  const { data: settingsData } = usePolling(() => api("/api/settings"), false);
+  const { data: requestData, loading: requestLoading } = usePolling(requestLoader, true, `/api/requests/${requestId}`);
+  const { data: settingsData } = usePolling(() => api("/api/settings"), false, "/api/settings");
   const request = requestData?.item;
   const [results, setResults] = React.useState(null);
   const [resultsError, setResultsError] = React.useState(null);
@@ -1584,14 +1589,24 @@ export function RequestResultsPage() {
     coords: null,
     unavailableReason: null,
   });
+  const updateGeolocationState = React.useCallback((nextStateOrUpdater) => {
+    setGeolocationState((current) => {
+      const nextState =
+        typeof nextStateOrUpdater === "function"
+          ? nextStateOrUpdater(current)
+          : nextStateOrUpdater;
+      geolocationStateRef.current = nextState;
+      return nextState;
+    });
+  }, []);
 
   const requestCurrentPosition = React.useCallback(() => {
     if (!navigator.geolocation) {
-      setGeolocationState({ status: "unavailable", coords: null, unavailableReason: "unsupported" });
+      updateGeolocationState({ status: "unavailable", coords: null, unavailableReason: "unsupported" });
       return;
     }
     if (!window.isSecureContext) {
-      setGeolocationState({ status: "unavailable", coords: null, unavailableReason: "insecure-context" });
+      updateGeolocationState({ status: "unavailable", coords: null, unavailableReason: "insecure-context" });
       return;
     }
     if (geolocationRequestInFlightRef.current) {
@@ -1599,7 +1614,7 @@ export function RequestResultsPage() {
     }
 
     geolocationRequestInFlightRef.current = true;
-    setGeolocationState((current) => ({
+    updateGeolocationState((current) => ({
       status: "requesting",
       coords: current.status === "ready" ? current.coords : null,
       unavailableReason: null,
@@ -1607,7 +1622,7 @@ export function RequestResultsPage() {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         geolocationRequestInFlightRef.current = false;
-        setGeolocationState({
+        updateGeolocationState({
           status: "ready",
           coords: {
             lat: position.coords.latitude,
@@ -1620,7 +1635,7 @@ export function RequestResultsPage() {
         geolocationRequestInFlightRef.current = false;
         const permissionStatus = navigator.permissions?.query;
         if (typeof permissionStatus !== "function") {
-          setGeolocationState({
+          updateGeolocationState({
             status: getGeolocationErrorStatus({ errorCode: error?.code }),
             coords: null,
             unavailableReason: null,
@@ -1630,14 +1645,14 @@ export function RequestResultsPage() {
         permissionStatus
           .call(navigator.permissions, { name: "geolocation" })
           .then((permission) => {
-            setGeolocationState({
+            updateGeolocationState({
               status: getGeolocationErrorStatus({ errorCode: error?.code, permissionState: permission.state }),
               coords: null,
               unavailableReason: null,
             });
           })
           .catch(() => {
-            setGeolocationState({
+            updateGeolocationState({
               status: getGeolocationErrorStatus({ errorCode: error?.code }),
               coords: null,
               unavailableReason: null,
@@ -1646,11 +1661,7 @@ export function RequestResultsPage() {
       },
       { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 },
     );
-  }, []);
-
-  React.useEffect(() => {
-    geolocationStateRef.current = geolocationState;
-  }, [geolocationState]);
+  }, [updateGeolocationState]);
 
   React.useEffect(() => {
     setPageSize(pageSizeOptions[0]);
@@ -2157,15 +2168,15 @@ export function RequestResultsPage() {
     const isSecureContext = window.isSecureContext;
     const hasPermissionsApi = typeof navigator.permissions?.query === "function";
     if (!hasGeolocation) {
-      setGeolocationState({ status: "unavailable", coords: null, unavailableReason: "unsupported" });
+      updateGeolocationState({ status: "unavailable", coords: null, unavailableReason: "unsupported" });
       return;
     }
     if (!isSecureContext) {
-      setGeolocationState({ status: "unavailable", coords: null, unavailableReason: "insecure-context" });
+      updateGeolocationState({ status: "unavailable", coords: null, unavailableReason: "insecure-context" });
       return;
     }
     if (!hasPermissionsApi) {
-      setGeolocationState((currentGeolocationState) => {
+      updateGeolocationState((currentGeolocationState) => {
         if (currentGeolocationState.status === "ready" && currentGeolocationState.coords) {
           return currentGeolocationState;
         }
@@ -2215,7 +2226,7 @@ export function RequestResultsPage() {
             currentGeolocationState.status !== nextPlan.status
             || currentGeolocationState.coords !== null
           ) {
-            setGeolocationState({
+            updateGeolocationState({
               status: nextPlan.status,
               coords: null,
               unavailableReason: null,
@@ -2227,7 +2238,7 @@ export function RequestResultsPage() {
       })
       .catch(() => {
         if (active) {
-          setGeolocationState({ status: "prompt", coords: null, unavailableReason: null });
+          updateGeolocationState({ status: "prompt", coords: null, unavailableReason: null });
         }
       });
 
@@ -2237,7 +2248,7 @@ export function RequestResultsPage() {
         permissionRef.onchange = null;
       }
     };
-  }, [results, requestCurrentPosition]);
+  }, [results, requestCurrentPosition, updateGeolocationState]);
 
   React.useEffect(() => {
     if (!geolocationState.coords) {
@@ -2482,7 +2493,7 @@ function App() {
   );
 }
 
-export { App, api };
+export { App, api, usePolling };
 
 const rootElement = document.getElementById("root");
 if (rootElement) {
