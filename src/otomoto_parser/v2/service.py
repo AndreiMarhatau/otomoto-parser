@@ -6,10 +6,11 @@ import threading
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Callable
+from urllib.error import HTTPError
 
 from ..v1.history_report import VehicleHistoryClient, VehicleHistoryReport
 from ..v1.otomoto_vehicle_identity import OtomotoVehicleIdentity, fetch_otomoto_vehicle_identity
@@ -40,6 +41,27 @@ CUSTOM_CATEGORY_PREFIX = "custom:"
 
 ParserRunner = Callable[..., Any]
 
+REPORT_STATUS_IDLE = "idle"
+REPORT_STATUS_RUNNING = "running"
+REPORT_STATUS_SUCCESS = "success"
+REPORT_STATUS_FAILED = "failed"
+REPORT_STATUS_NEEDS_INPUT = "needs_input"
+
+REPORT_MISSING_FIRST_REGISTRATION = "missing_first_registration"
+REPORT_MISSING_REGISTRATION = "missing_registration"
+REPORT_MISSING_REGISTRATION_AND_DATE = "missing_registration_and_date"
+REPORT_UPSTREAM_404 = "upstream_404"
+
+REPORT_PROGRESS_FETCHING_IDENTITY = "Fetching listing identity..."
+REPORT_PROGRESS_FETCHING_REPORT = "Fetching vehicle history report..."
+
+DEFAULT_REPORT_LOOKUP_DAYS_BACK = 120
+DEFAULT_REPORT_LOOKUP_DAYS_FORWARD = 14
+
+
+class VehicleReportNeedsInput(Exception):
+    pass
+
 
 def utc_now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
@@ -54,6 +76,45 @@ def _read_json(path: Path, default: Any) -> Any:
 def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _date_range_defaults() -> tuple[str, str]:
+    today = datetime.now(UTC).date()
+    return (
+        (today - timedelta(days=DEFAULT_REPORT_LOOKUP_DAYS_BACK)).isoformat(),
+        (today + timedelta(days=DEFAULT_REPORT_LOOKUP_DAYS_FORWARD)).isoformat(),
+    )
+
+
+def _normalize_lookup_date(value: str) -> str:
+    try:
+        return date.fromisoformat(value).isoformat()
+    except ValueError as exc:
+        raise RuntimeError("Invalid date format. Use YYYY-MM-DD.") from exc
+
+
+def _report_lookup_options(
+    *,
+    vin: str | None,
+    registration_number: str | None,
+    first_registration_date: str | None,
+    reason: str,
+    error: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    default_from, default_to = _date_range_defaults()
+    return {
+        "reason": reason,
+        "vin": vin,
+        "registrationNumber": registration_number,
+        "firstRegistrationDate": first_registration_date,
+        "dateRange": {
+            "from": date_from or first_registration_date or default_from,
+            "to": date_to or default_to,
+        },
+        "error": error,
+    }
 
 
 def _param_map(parameters: list[dict[str, Any]] | None) -> dict[str, dict[str, Any]]:
@@ -292,9 +353,11 @@ class ParserAppService:
         self.parser_options = parser_options or {}
         self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="parser-app")
         self._futures: dict[str, Future[Any]] = {}
+        self._report_futures: dict[tuple[str, str], Future[Any]] = {}
         self._lock = threading.Lock()
         self._request_locks: dict[str, threading.Lock] = {}
         self._recover_in_progress_requests()
+        self._recover_in_progress_report_lookups()
 
     def shutdown(self) -> None:
         self.executor.shutdown(wait=False, cancel_futures=True)
@@ -308,6 +371,19 @@ class ParserAppService:
                     error="The application stopped while this request was still running.",
                     progressMessage="Interrupted during the previous run.",
                 )
+
+    def _recover_in_progress_report_lookups(self) -> None:
+        for request in self.store.list_requests():
+            paths = self.request_paths(request["id"])
+            if not paths.reports_dir.exists():
+                continue
+            for status_path in paths.reports_dir.glob("*.json"):
+                status = _read_json(status_path, None)
+                if not isinstance(status, dict):
+                    continue
+                if status.get("status") != REPORT_STATUS_RUNNING:
+                    continue
+                self._write_json_recovered_report_status(status_path, status)
 
     def request_paths(self, request_id: str) -> RequestPaths:
         request_dir = self.data_dir / "requests" / request_id
@@ -554,43 +630,128 @@ class ParserAppService:
             canonical_listing_id = listing["id"]
             cache_path = self._vehicle_report_path(request_id, canonical_listing_id)
             status_path = self._vehicle_report_status_path(request_id, canonical_listing_id)
+            status = _read_json(status_path, {})
+            future_key = (request_id, canonical_listing_id)
+            with self._lock:
+                active_future = self._report_futures.get(future_key)
+                report_lookup_running = active_future is not None and not active_future.done()
             if not force_refresh:
                 cached = _read_json(cache_path, None)
                 if cached is not None:
                     return cached
+                if status.get("status") in {REPORT_STATUS_RUNNING, REPORT_STATUS_NEEDS_INPUT}:
+                    return self._build_vehicle_report_state_payload(
+                        request_id,
+                        listing,
+                        status=status,
+                    )
+                if status.get("status") == REPORT_STATUS_FAILED and (
+                    status.get("lookup") is not None or status.get("lookupOptions") is not None
+                ):
+                    return self._build_vehicle_report_state_payload(
+                        request_id,
+                        listing,
+                        status=status,
+                    )
+            elif report_lookup_running or status.get("status") == REPORT_STATUS_RUNNING:
+                raise RuntimeError("A vehicle report lookup is already running for this listing.")
             url = listing.get("url")
             if not isinstance(url, str) or not url:
                 error_message = "Listing URL is missing, so the vehicle report cannot be fetched."
                 self._write_vehicle_report_status(status_path, status="failed", error=error_message)
                 raise RuntimeError(error_message)
             try:
-                identity = fetch_otomoto_vehicle_identity(
-                    url,
-                    timeout_s=float(self.parser_options.get("request_timeout_s", 45.0)),
+                self._write_vehicle_report_status(
+                    status_path,
+                    status=REPORT_STATUS_RUNNING,
+                    progress_message=REPORT_PROGRESS_FETCHING_IDENTITY,
                 )
-                history_client = VehicleHistoryClient(
-                    timeout_s=float(self.parser_options.get("request_timeout_s", 45.0)),
-                    retry_attempts=int(self.parser_options.get("retry_attempts", 4)),
-                    backoff_base_s=float(self.parser_options.get("backoff_base", 1.0)),
+                identity = self._fetch_listing_identity(url)
+                self._ensure_identity_ready_for_report(status_path, identity)
+                self._write_vehicle_report_status(
+                    status_path,
+                    status=REPORT_STATUS_RUNNING,
+                    progress_message=REPORT_PROGRESS_FETCHING_REPORT,
+                    identity=identity,
                 )
-                history = history_client.fetch_report(
-                    identity.registration_number,
-                    identity.vin,
-                    identity.first_registration_date,
+                history = self._fetch_history_report(
+                    status_path,
+                    identity,
                 )
+            except VehicleReportNeedsInput:
+                return self._build_vehicle_report_state_payload(request_id, listing)
             except Exception as exc:  # noqa: BLE001
                 error_message = f"Could not fetch vehicle report data: {exc}"
-                self._write_vehicle_report_status(status_path, status="failed", error=error_message)
+                self._write_vehicle_report_status(status_path, status=REPORT_STATUS_FAILED, error=error_message)
                 raise RuntimeError(error_message) from exc
             payload = self._build_vehicle_report_payload(listing, identity, history)
             self.get_request(request_id)
             _write_json(cache_path, payload)
             self._write_vehicle_report_status(
                 status_path,
-                status="success",
+                status=REPORT_STATUS_SUCCESS,
                 retrieved_at=payload["retrievedAt"],
+                identity=identity,
             )
             return payload
+
+    def submit_vehicle_report_lookup(
+        self,
+        request_id: str,
+        listing_id: str,
+        *,
+        registration_number: str,
+        date_from: str,
+        date_to: str,
+    ) -> dict[str, Any]:
+        with self._request_lock(request_id):
+            listing = self._resolve_listing_for_report(request_id, listing_id)
+            canonical_listing_id = listing["id"]
+            status_path = self._vehicle_report_status_path(request_id, canonical_listing_id)
+            cache_path = self._vehicle_report_path(request_id, canonical_listing_id)
+            status = _read_json(status_path, {})
+            future_key = (request_id, canonical_listing_id)
+            with self._lock:
+                active_future = self._report_futures.get(future_key)
+                if active_future is not None and not active_future.done():
+                    return self._build_vehicle_report_state_payload(request_id, listing, status=status)
+            identity = self._read_identity_from_status(status)
+            if identity is None:
+                url = listing.get("url")
+                if not isinstance(url, str) or not url:
+                    raise RuntimeError("Listing URL is missing, so the vehicle report cannot be fetched.")
+                identity = self._fetch_listing_identity(url)
+            if not identity.vin:
+                raise RuntimeError("VIN is missing, so the vehicle report cannot be fetched.")
+            normalized_from = _normalize_lookup_date(date_from)
+            normalized_to = _normalize_lookup_date(date_to)
+            if normalized_from > normalized_to:
+                raise RuntimeError("Start date cannot be later than end date.")
+            normalized_registration = registration_number.strip().upper().replace(" ", "")
+            if not normalized_registration:
+                raise RuntimeError("Registration number cannot be empty.")
+            if cache_path.exists():
+                cache_path.unlink()
+            self._write_vehicle_report_status(
+                status_path,
+                status=REPORT_STATUS_RUNNING,
+                identity=identity,
+                progress_message=f"Searching reports from {normalized_from} to {normalized_to}...",
+                lookup={
+                    "registrationNumber": normalized_registration,
+                    "dateRange": {"from": normalized_from, "to": normalized_to},
+                },
+            )
+            self._start_vehicle_report_lookup_job(
+                request_id,
+                canonical_listing_id,
+                listing,
+                identity,
+                normalized_registration,
+                normalized_from,
+                normalized_to,
+            )
+            return self._build_vehicle_report_state_payload(request_id, listing)
 
     def _attach_report_cache_metadata(self, request_id: str, items: list[dict[str, Any]]) -> None:
         for item in items:
@@ -604,6 +765,9 @@ class ParserAppService:
                 "status": status.get("status"),
                 "lastAttemptAt": status.get("lastAttemptAt"),
                 "lastError": status.get("lastError"),
+                "progressMessage": status.get("progressMessage"),
+                "lookup": status.get("lookup"),
+                "lookupOptions": status.get("lookupOptions"),
             }
 
     def _attach_saved_category_metadata(self, request_id: str, items: list[dict[str, Any]]) -> None:
@@ -658,6 +822,31 @@ class ParserAppService:
             "summary": self._build_report_summary(history),
         }
 
+    def _build_vehicle_report_state_payload(
+        self,
+        request_id: str,
+        listing: dict[str, Any],
+        *,
+        status: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        current_status = status or _read_json(self._vehicle_report_status_path(request_id, str(listing["id"])), {})
+        cached = _read_json(self._vehicle_report_path(request_id, str(listing["id"])), None)
+        if cached is not None:
+            return cached
+        return {
+            "listingId": listing["id"],
+            "listingUrl": listing.get("url"),
+            "listingTitle": listing.get("title"),
+            "retrievedAt": current_status.get("retrievedAt"),
+            "lastAttemptAt": current_status.get("lastAttemptAt"),
+            "status": current_status.get("status") or REPORT_STATUS_IDLE,
+            "progressMessage": current_status.get("progressMessage"),
+            "error": current_status.get("lastError"),
+            "identity": current_status.get("identity") or {},
+            "lookup": current_status.get("lookup"),
+            "lookupOptions": current_status.get("lookupOptions"),
+        }
+
     def _vehicle_report_path(self, request_id: str, listing_id: str) -> Path:
         paths = self.request_paths(request_id)
         cache_key = sha256(listing_id.encode("utf-8")).hexdigest()
@@ -675,14 +864,310 @@ class ParserAppService:
         status: str,
         error: str | None = None,
         retrieved_at: str | None = None,
+        progress_message: str | None = None,
+        identity: OtomotoVehicleIdentity | dict[str, Any] | None = None,
+        lookup: dict[str, Any] | None = None,
+        lookup_options: dict[str, Any] | None = None,
     ) -> None:
         payload = {
             "status": status,
             "lastAttemptAt": utc_now(),
             "lastError": error,
             "retrievedAt": retrieved_at,
+            "progressMessage": progress_message,
+            "identity": self._serialize_identity(identity) if identity is not None else None,
+            "lookup": lookup,
+            "lookupOptions": lookup_options,
         }
         _write_json(path, payload)
+
+    def _write_json_recovered_report_status(self, path: Path, previous_status: dict[str, Any]) -> None:
+        previous_lookup = previous_status.get("lookup") if isinstance(previous_status.get("lookup"), dict) else {}
+        previous_identity = previous_status.get("identity") if isinstance(previous_status.get("identity"), dict) else {}
+        previous_options = previous_status.get("lookupOptions") if isinstance(previous_status.get("lookupOptions"), dict) else {}
+        recovered_options = {
+            "reason": previous_options.get("reason") or REPORT_UPSTREAM_404,
+            "vin": previous_options.get("vin") or previous_identity.get("vin"),
+            "registrationNumber": previous_options.get("registrationNumber")
+            or previous_lookup.get("registrationNumber")
+            or previous_identity.get("registrationNumber"),
+            "firstRegistrationDate": previous_options.get("firstRegistrationDate") or previous_identity.get("firstRegistrationDate"),
+            "dateRange": {
+                "from": ((previous_options.get("dateRange") or {}).get("from")) or ((previous_lookup.get("dateRange") or {}).get("from")),
+                "to": ((previous_options.get("dateRange") or {}).get("to")) or ((previous_lookup.get("dateRange") or {}).get("to")),
+            },
+            "error": "The previous vehicle report lookup was interrupted. Please try again.",
+        }
+        _write_json(
+            path,
+            {
+                "status": REPORT_STATUS_NEEDS_INPUT,
+                "lastAttemptAt": utc_now(),
+                "lastError": "The previous vehicle report lookup was interrupted. Please try again.",
+                "retrievedAt": previous_status.get("retrievedAt"),
+                "progressMessage": None,
+                "identity": previous_status.get("identity"),
+                "lookup": previous_status.get("lookup"),
+                "lookupOptions": recovered_options,
+            },
+        )
+
+    def _serialize_identity(self, identity: OtomotoVehicleIdentity | dict[str, Any] | None) -> dict[str, Any]:
+        if identity is None:
+            return {}
+        if isinstance(identity, dict):
+            return {
+                "advertId": identity.get("advertId"),
+                "vin": identity.get("vin"),
+                "registrationNumber": identity.get("registrationNumber"),
+                "firstRegistrationDate": identity.get("firstRegistrationDate"),
+            }
+        return {
+            "advertId": identity.advert_id,
+            "vin": identity.vin,
+            "registrationNumber": identity.registration_number,
+            "firstRegistrationDate": identity.first_registration_date,
+        }
+
+    def _read_identity_from_status(self, status: dict[str, Any]) -> OtomotoVehicleIdentity | None:
+        identity = status.get("identity")
+        if not isinstance(identity, dict):
+            return None
+        vin = identity.get("vin")
+        advert_id = identity.get("advertId")
+        if not isinstance(vin, str) or not vin or not isinstance(advert_id, str) or not advert_id:
+            return None
+        return OtomotoVehicleIdentity(
+            advert_id=advert_id,
+            encrypted_vin=None,
+            encrypted_first_registration_date=None,
+            encrypted_registration_number=None,
+            vin=vin,
+            first_registration_date=identity.get("firstRegistrationDate"),
+            registration_number=identity.get("registrationNumber"),
+        )
+
+    def _fetch_listing_identity(self, url: str) -> OtomotoVehicleIdentity:
+        return fetch_otomoto_vehicle_identity(
+            url,
+            timeout_s=float(self.parser_options.get("request_timeout_s", 45.0)),
+        )
+
+    def _fetch_history_report(
+        self,
+        status_path: Path,
+        identity: OtomotoVehicleIdentity,
+    ) -> VehicleHistoryReport:
+        history_client = VehicleHistoryClient(
+            timeout_s=float(self.parser_options.get("request_timeout_s", 45.0)),
+            retry_attempts=int(self.parser_options.get("retry_attempts", 4)),
+            backoff_base_s=float(self.parser_options.get("backoff_base", 1.0)),
+        )
+        try:
+            return history_client.fetch_report(
+                identity.registration_number,
+                identity.vin,
+                identity.first_registration_date,
+            )
+        except RuntimeError as exc:
+            if "HTTP 404" in str(exc):
+                lookup_options = _report_lookup_options(
+                    vin=identity.vin,
+                    registration_number=identity.registration_number,
+                    first_registration_date=identity.first_registration_date,
+                    reason=REPORT_UPSTREAM_404,
+                    error=f"Could not find a report for {identity.first_registration_date}. Try another date.",
+                )
+                self._write_vehicle_report_status(
+                    status_path,
+                    status=REPORT_STATUS_NEEDS_INPUT,
+                    error=lookup_options["error"],
+                    identity=identity,
+                    lookup_options=lookup_options,
+                    lookup={"registrationNumber": identity.registration_number},
+                )
+                raise VehicleReportNeedsInput(str(exc)) from exc
+            raise
+
+    def _ensure_identity_ready_for_report(self, status_path: Path, identity: OtomotoVehicleIdentity) -> None:
+        if identity.registration_number and identity.first_registration_date:
+            return
+        if not identity.registration_number and not identity.first_registration_date:
+            reason = REPORT_MISSING_REGISTRATION_AND_DATE
+        elif not identity.registration_number:
+            reason = REPORT_MISSING_REGISTRATION
+        else:
+            reason = REPORT_MISSING_FIRST_REGISTRATION
+        lookup_options = _report_lookup_options(
+            vin=identity.vin,
+            registration_number=identity.registration_number,
+            first_registration_date=identity.first_registration_date,
+            reason=reason,
+            error="Provide the missing registration details to search for the report.",
+        )
+        self._write_vehicle_report_status(
+            status_path,
+            status=REPORT_STATUS_NEEDS_INPUT,
+            error=lookup_options["error"],
+            identity=identity,
+            lookup_options=lookup_options,
+        )
+        raise VehicleReportNeedsInput(lookup_options["error"])
+
+    def _start_vehicle_report_lookup_job(
+        self,
+        request_id: str,
+        listing_id: str,
+        listing: dict[str, Any],
+        identity: OtomotoVehicleIdentity,
+        registration_number: str,
+        date_from: str,
+        date_to: str,
+    ) -> None:
+        future_key = (request_id, listing_id)
+        with self._lock:
+            existing = self._report_futures.get(future_key)
+            if existing is not None and not existing.done():
+                return False
+            self._report_futures[future_key] = self.executor.submit(
+                self._run_vehicle_report_lookup,
+                request_id,
+                listing_id,
+                listing,
+                identity,
+                registration_number,
+                date_from,
+                date_to,
+            )
+            return True
+
+    def _run_vehicle_report_lookup(
+        self,
+        request_id: str,
+        listing_id: str,
+        listing: dict[str, Any],
+        identity: OtomotoVehicleIdentity,
+        registration_number: str,
+        date_from: str,
+        date_to: str,
+    ) -> None:
+        status_path = self._vehicle_report_status_path(request_id, listing_id)
+        cache_path = self._vehicle_report_path(request_id, listing_id)
+        start = date.fromisoformat(date_from)
+        end = date.fromisoformat(date_to)
+        history_client = VehicleHistoryClient(
+            timeout_s=float(self.parser_options.get("request_timeout_s", 45.0)),
+            retry_attempts=int(self.parser_options.get("retry_attempts", 4)),
+            backoff_base_s=float(self.parser_options.get("backoff_base", 1.0)),
+        )
+        total_days = (end - start).days + 1
+        try:
+            for offset in range(max(0, total_days)):
+                candidate_date = (start + timedelta(days=offset)).isoformat()
+                self._write_vehicle_report_status(
+                    status_path,
+                    status=REPORT_STATUS_RUNNING,
+                    identity=identity,
+                    progress_message=f"Checking {candidate_date} ({offset + 1}/{total_days})...",
+                    lookup={
+                        "registrationNumber": registration_number,
+                        "dateRange": {"from": date_from, "to": date_to},
+                        "currentDate": candidate_date,
+                    },
+                )
+                try:
+                    history = history_client.fetch_report(registration_number, identity.vin, candidate_date)
+                except RuntimeError as exc:
+                    if "HTTP 404" in str(exc):
+                        continue
+                    self._write_vehicle_report_status(
+                        status_path,
+                        status=REPORT_STATUS_FAILED,
+                        error=f"Could not fetch vehicle report data: {exc}",
+                        identity=identity,
+                        lookup={
+                            "registrationNumber": registration_number,
+                            "dateRange": {"from": date_from, "to": date_to},
+                        },
+                    )
+                    return
+                payload = self._build_vehicle_report_payload(
+                    listing,
+                    OtomotoVehicleIdentity(
+                        advert_id=identity.advert_id,
+                        encrypted_vin=None,
+                        encrypted_first_registration_date=None,
+                        encrypted_registration_number=None,
+                        vin=identity.vin,
+                        first_registration_date=candidate_date,
+                        registration_number=registration_number,
+                    ),
+                    history,
+                )
+                _write_json(cache_path, payload)
+                self._write_vehicle_report_status(
+                    status_path,
+                    status=REPORT_STATUS_SUCCESS,
+                    retrieved_at=payload["retrievedAt"],
+                    identity=payload["identity"],
+                    lookup={
+                        "registrationNumber": registration_number,
+                        "dateRange": {"from": date_from, "to": date_to},
+                        "currentDate": candidate_date,
+                    },
+                )
+                return
+            lookup_options = _report_lookup_options(
+                vin=identity.vin,
+                registration_number=registration_number,
+                first_registration_date=None,
+                reason=REPORT_UPSTREAM_404,
+                error="No report was found in that date range. Try another date range.",
+                date_from=date_from,
+                date_to=date_to,
+            )
+            self._write_vehicle_report_status(
+                status_path,
+                status=REPORT_STATUS_NEEDS_INPUT,
+                error=lookup_options["error"],
+                identity=OtomotoVehicleIdentity(
+                    advert_id=identity.advert_id,
+                    encrypted_vin=None,
+                    encrypted_first_registration_date=None,
+                    encrypted_registration_number=None,
+                    vin=identity.vin,
+                    first_registration_date=None,
+                    registration_number=registration_number,
+                ),
+                lookup={
+                    "registrationNumber": registration_number,
+                    "dateRange": {"from": date_from, "to": date_to},
+                },
+                lookup_options=lookup_options,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._write_vehicle_report_status(
+                status_path,
+                status=REPORT_STATUS_FAILED,
+                error=f"Vehicle report lookup stopped unexpectedly: {exc}",
+                identity=identity,
+                lookup={
+                    "registrationNumber": registration_number,
+                    "dateRange": {"from": date_from, "to": date_to},
+                },
+                lookup_options=_report_lookup_options(
+                    vin=identity.vin,
+                    registration_number=registration_number,
+                    first_registration_date=None,
+                    reason=REPORT_UPSTREAM_404,
+                    error=f"Vehicle report lookup stopped unexpectedly: {exc}",
+                    date_from=date_from,
+                    date_to=date_to,
+                ),
+            )
+        finally:
+            with self._lock:
+                self._report_futures.pop((request_id, listing_id), None)
 
     def _canonical_listing_id(self, record: dict[str, Any]) -> str:
         node = record.get("node") if isinstance(record.get("node"), dict) else {}

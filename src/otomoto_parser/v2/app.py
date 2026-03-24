@@ -31,6 +31,12 @@ class ListingCategoriesPayload(BaseModel):
     categoryIds: list[str]
 
 
+class VehicleReportLookupPayload(BaseModel):
+    registrationNumber: str
+    dateFrom: str
+    dateTo: str
+
+
 _GEOCODE_CACHE: dict[str, dict[str, Any] | None] = {}
 
 
@@ -238,6 +244,32 @@ def create_app(
             raise HTTPException(status_code=404, detail="Listing not found.") from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return {"item": item}
+
+    @app.post("/api/requests/{request_id}/listings/{listing_id}/vehicle-report/lookup")
+    def lookup_vehicle_report_endpoint(
+        request_id: str,
+        listing_id: str,
+        payload: VehicleReportLookupPayload,
+    ) -> dict[str, Any]:
+        try:
+            request = _service().get_request(request_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Request not found.") from exc
+        if not request["resultsReady"]:
+            raise HTTPException(status_code=409, detail="Results are not ready yet.")
+        try:
+            item = _service().submit_vehicle_report_lookup(
+                request_id,
+                listing_id,
+                registration_number=payload.registrationNumber,
+                date_from=payload.dateFrom,
+                date_to=payload.dateTo,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Listing not found.") from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"item": item}
 
     @app.get("/api/requests/{request_id}/excel")

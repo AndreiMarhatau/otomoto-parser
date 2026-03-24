@@ -24,12 +24,12 @@ PBKDF2_SALT = b"d2905222-d0c5-4ec5-bfcf-e9c29041de3c"
 @dataclass
 class OtomotoVehicleIdentity:
     advert_id: str
-    encrypted_vin: str
-    encrypted_first_registration_date: str
-    encrypted_registration_number: str
+    encrypted_vin: str | None
+    encrypted_first_registration_date: str | None
+    encrypted_registration_number: str | None
     vin: str
-    first_registration_date: str
-    registration_number: str
+    first_registration_date: str | None
+    registration_number: str | None
 
 
 def _extract_next_data(html: str) -> dict[str, Any]:
@@ -43,16 +43,22 @@ def _extract_next_data(html: str) -> dict[str, Any]:
     return json.loads(match.group("body"))
 
 
-def _extract_encrypted_value(parameters_dict: dict[str, Any], key: str) -> str:
+def _extract_encrypted_value(parameters_dict: dict[str, Any], key: str, *, required: bool = True) -> str | None:
     item = parameters_dict.get(key)
     if not isinstance(item, dict):
-        raise RuntimeError(f"Missing encrypted Otomoto field: {key}")
+        if required:
+            raise RuntimeError(f"Missing encrypted Otomoto field: {key}")
+        return None
     values = item.get("values")
     if not isinstance(values, list) or not values:
-        raise RuntimeError(f"Missing encrypted Otomoto values for field: {key}")
+        if required:
+            raise RuntimeError(f"Missing encrypted Otomoto values for field: {key}")
+        return None
     value = values[0].get("value")
     if not isinstance(value, str) or not value:
-        raise RuntimeError(f"Invalid encrypted Otomoto value for field: {key}")
+        if required:
+            raise RuntimeError(f"Invalid encrypted Otomoto value for field: {key}")
+        return None
     return value
 
 
@@ -89,8 +95,8 @@ def extract_otomoto_vehicle_identity_from_html(html: str) -> OtomotoVehicleIdent
     parameters_dict = advert["parametersDict"]
 
     encrypted_vin = _extract_encrypted_value(parameters_dict, "vin")
-    encrypted_first_registration_date = _extract_encrypted_value(parameters_dict, "date_registration")
-    encrypted_registration_number = _extract_encrypted_value(parameters_dict, "registration")
+    encrypted_first_registration_date = _extract_encrypted_value(parameters_dict, "date_registration", required=False)
+    encrypted_registration_number = _extract_encrypted_value(parameters_dict, "registration", required=False)
 
     return OtomotoVehicleIdentity(
         advert_id=advert_id,
@@ -98,8 +104,12 @@ def extract_otomoto_vehicle_identity_from_html(html: str) -> OtomotoVehicleIdent
         encrypted_first_registration_date=encrypted_first_registration_date,
         encrypted_registration_number=encrypted_registration_number,
         vin=decrypt_otomoto_secret(encrypted_vin, advert_id),
-        first_registration_date=decrypt_otomoto_secret(encrypted_first_registration_date, advert_id),
-        registration_number=decrypt_otomoto_secret(encrypted_registration_number, advert_id).upper(),
+        first_registration_date=decrypt_otomoto_secret(encrypted_first_registration_date, advert_id)
+        if encrypted_first_registration_date
+        else None,
+        registration_number=decrypt_otomoto_secret(encrypted_registration_number, advert_id).upper()
+        if encrypted_registration_number
+        else None,
     )
 
 
