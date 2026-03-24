@@ -98,6 +98,42 @@ def _fake_identity() -> OtomotoVehicleIdentity:
     )
 
 
+def _fake_identity_missing_first_registration() -> OtomotoVehicleIdentity:
+    return OtomotoVehicleIdentity(
+        advert_id="6146171299",
+        encrypted_vin="encrypted-vin",
+        encrypted_first_registration_date=None,
+        encrypted_registration_number="encrypted-reg",
+        vin="WDDSJ4EB2EN056917",
+        first_registration_date=None,
+        registration_number="DLU8613F",
+    )
+
+
+def _fake_identity_missing_registration_and_first_registration() -> OtomotoVehicleIdentity:
+    return OtomotoVehicleIdentity(
+        advert_id="6146171299",
+        encrypted_vin="encrypted-vin",
+        encrypted_first_registration_date=None,
+        encrypted_registration_number=None,
+        vin="WDDSJ4EB2EN056917",
+        first_registration_date=None,
+        registration_number=None,
+    )
+
+
+def _fake_identity_missing_registration() -> OtomotoVehicleIdentity:
+    return OtomotoVehicleIdentity(
+        advert_id="6146171299",
+        encrypted_vin="encrypted-vin",
+        encrypted_first_registration_date="encrypted-date",
+        encrypted_registration_number=None,
+        vin="WDDSJ4EB2EN056917",
+        first_registration_date="2014-01-01",
+        registration_number=None,
+    )
+
+
 def _fake_history_report() -> VehicleHistoryReport:
     return VehicleHistoryReport(
         registration_number="DLU8613F",
@@ -402,6 +438,37 @@ def _wait_until_ready(client: TestClient, request_id: str) -> dict:
             return item
         time.sleep(0.05)
     raise AssertionError("request did not finish")
+
+
+def _wait_for_vehicle_report_state(client: TestClient, request_id: str, listing_id: str, *, timeout_s: float = 10.0) -> dict:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        response = client.get(f"/api/requests/{request_id}/listings/{listing_id}/vehicle-report")
+        response.raise_for_status()
+        item = response.json()["item"]
+        if item.get("report") is not None or item.get("status") in {"needs_input", "failed"}:
+            return item
+        time.sleep(0.05)
+    raise AssertionError("vehicle report lookup did not finish")
+
+
+def _wait_for_vehicle_report_status(
+    client: TestClient,
+    request_id: str,
+    listing_id: str,
+    expected_status: str,
+    *,
+    timeout_s: float = 10.0,
+) -> dict:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        response = client.get(f"/api/requests/{request_id}/listings/{listing_id}/vehicle-report")
+        response.raise_for_status()
+        item = response.json()["item"]
+        if item.get("status") == expected_status:
+            return item
+        time.sleep(0.05)
+    raise AssertionError(f"vehicle report lookup did not reach status {expected_status}")
 
 
 def test_build_categorized_payload_assigns_expected_categories(tmp_path: Path) -> None:
@@ -1167,6 +1234,446 @@ def test_vehicle_report_endpoint_normalizes_upstream_failures(monkeypatch, tmp_p
         retry_response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
         assert retry_response.status_code == 502
         assert identity_calls["value"] == 2
+
+
+def test_vehicle_report_missing_first_registration_returns_lookup_options(monkeypatch, tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+
+    monkeypatch.setattr(service_module, "fetch_otomoto_vehicle_identity", lambda url, **kwargs: _fake_identity_missing_first_registration())
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        assert response.status_code == 200
+        item = response.json()["item"]
+        assert item["status"] == "needs_input"
+        assert item["identity"]["vin"] == "WDDSJ4EB2EN056917"
+        assert item["identity"]["registrationNumber"] == "DLU8613F"
+        assert item["identity"]["firstRegistrationDate"] is None
+        assert item["lookupOptions"]["reason"] == "missing_first_registration"
+        assert item["lookupOptions"]["dateRange"]["from"]
+        assert item["lookupOptions"]["dateRange"]["to"]
+
+
+def test_vehicle_report_missing_registration_and_first_registration_returns_empty_registration_lookup(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+
+    monkeypatch.setattr(
+        service_module,
+        "fetch_otomoto_vehicle_identity",
+        lambda url, **kwargs: _fake_identity_missing_registration_and_first_registration(),
+    )
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        assert response.status_code == 200
+        item = response.json()["item"]
+        assert item["status"] == "needs_input"
+        assert item["identity"]["vin"] == "WDDSJ4EB2EN056917"
+        assert item["identity"]["registrationNumber"] is None
+        assert item["identity"]["firstRegistrationDate"] is None
+        assert item["lookupOptions"]["reason"] == "missing_registration_and_date"
+        assert item["lookupOptions"]["registrationNumber"] is None
+
+
+def test_vehicle_report_missing_registration_returns_lookup_options_with_correct_reason(monkeypatch, tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+
+    monkeypatch.setattr(
+        service_module,
+        "fetch_otomoto_vehicle_identity",
+        lambda url, **kwargs: _fake_identity_missing_registration(),
+    )
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        assert response.status_code == 200
+        item = response.json()["item"]
+        assert item["status"] == "needs_input"
+        assert item["identity"]["vin"] == "WDDSJ4EB2EN056917"
+        assert item["identity"]["registrationNumber"] is None
+        assert item["identity"]["firstRegistrationDate"] == "2014-01-01"
+        assert item["lookupOptions"]["reason"] == "missing_registration"
+        assert item["lookupOptions"]["registrationNumber"] is None
+
+
+def test_vehicle_report_404_allows_async_lookup_and_persists_progress(monkeypatch, tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+    fetch_calls: list[tuple[str, str, str]] = []
+
+    monkeypatch.setattr(service_module, "fetch_otomoto_vehicle_identity", lambda url, **kwargs: _fake_identity())
+
+    def fake_fetch_report(self, registration_number: str, vin_number: str, first_registration_date: str) -> VehicleHistoryReport:
+        fetch_calls.append((registration_number, vin_number, first_registration_date))
+        if first_registration_date == "2014-01-01":
+            raise RuntimeError("HistoriaPojazdu vehicle-data failed with HTTP 404: Not Found")
+        if first_registration_date == "2014-01-02":
+            time.sleep(0.15)
+            report = _fake_history_report()
+            report.first_registration_date = first_registration_date
+            return report
+        raise RuntimeError("HistoriaPojazdu vehicle-data failed with HTTP 404: Not Found")
+
+    monkeypatch.setattr(service_module.VehicleHistoryClient, "fetch_report", fake_fetch_report)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        initial_response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        assert initial_response.status_code == 200
+        initial_item = initial_response.json()["item"]
+        assert initial_item["status"] == "needs_input"
+        assert initial_item["lookupOptions"]["reason"] == "upstream_404"
+        assert initial_item["identity"]["vin"] == "WDDSJ4EB2EN056917"
+
+        lookup_response = client.post(
+            f"/api/requests/{request_id}/listings/4/vehicle-report/lookup",
+            json={
+                "registrationNumber": "DLU8613F",
+                "dateFrom": "2014-01-01",
+                "dateTo": "2014-01-03",
+            },
+        )
+        assert lookup_response.status_code == 200
+        lookup_item = lookup_response.json()["item"]
+        assert lookup_item["status"] == "running"
+        assert lookup_item["lookup"]["dateRange"] == {"from": "2014-01-01", "to": "2014-01-03"}
+
+        reopened_response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        assert reopened_response.status_code == 200
+        reopened_item = reopened_response.json()["item"]
+        assert reopened_item["status"] in {"running", "success"}
+        if reopened_item["status"] == "running":
+            assert reopened_item["lookup"]["registrationNumber"] == "DLU8613F"
+            assert reopened_item["lookup"]["dateRange"] == {"from": "2014-01-01", "to": "2014-01-03"}
+
+        final_item = _wait_for_vehicle_report_state(client, request_id, "4")
+        assert final_item["report"]["first_registration_date"] == "2014-01-02"
+        assert ("DLU8613F", "WDDSJ4EB2EN056917", "2014-01-01") in fetch_calls
+        assert ("DLU8613F", "WDDSJ4EB2EN056917", "2014-01-02") in fetch_calls
+
+        results_response = client.get(
+            f"/api/requests/{request_id}/results",
+            params={"category": CATEGORY_TO_BE_CHECKED},
+        )
+        item = results_response.json()["items"][0]
+        assert item["vehicleReport"]["status"] == "success"
+        assert item["vehicleReport"]["retrievedAt"]
+
+
+def test_vehicle_report_lookup_rejects_invalid_dates_with_retryable_client_error(monkeypatch, tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+
+    monkeypatch.setattr(service_module, "fetch_otomoto_vehicle_identity", lambda url, **kwargs: _fake_identity())
+    monkeypatch.setattr(
+        service_module.VehicleHistoryClient,
+        "fetch_report",
+        lambda self, registration_number, vin_number, first_registration_date: (_ for _ in ()).throw(
+            RuntimeError("HistoriaPojazdu vehicle-data failed with HTTP 404: Not Found")
+        ),
+    )
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        initial_response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        assert initial_response.status_code == 200
+        assert initial_response.json()["item"]["status"] == "needs_input"
+
+        lookup_response = client.post(
+            f"/api/requests/{request_id}/listings/4/vehicle-report/lookup",
+            json={
+                "registrationNumber": "DLU8613F",
+                "dateFrom": "",
+                "dateTo": "2014-01-03",
+            },
+        )
+        assert lookup_response.status_code == 409
+        assert lookup_response.json()["detail"] == "Invalid date format. Use YYYY-MM-DD."
+
+
+def test_vehicle_report_duplicate_lookup_submission_keeps_original_running_state(monkeypatch, tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+
+    monkeypatch.setattr(service_module, "fetch_otomoto_vehicle_identity", lambda url, **kwargs: _fake_identity())
+
+    def fake_fetch_report(self, registration_number: str, vin_number: str, first_registration_date: str) -> VehicleHistoryReport:
+        if first_registration_date == "2014-01-01":
+            raise RuntimeError("HistoriaPojazdu vehicle-data failed with HTTP 404: Not Found")
+        time.sleep(0.25)
+        if first_registration_date == "2014-01-02":
+            report = _fake_history_report()
+            report.first_registration_date = first_registration_date
+            return report
+        raise RuntimeError("HistoriaPojazdu vehicle-data failed with HTTP 404: Not Found")
+
+    monkeypatch.setattr(service_module.VehicleHistoryClient, "fetch_report", fake_fetch_report)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        initial_response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        assert initial_response.status_code == 200
+        assert initial_response.json()["item"]["status"] == "needs_input"
+
+        first_lookup = client.post(
+            f"/api/requests/{request_id}/listings/4/vehicle-report/lookup",
+            json={
+                "registrationNumber": "DLU8613F",
+                "dateFrom": "2014-01-01",
+                "dateTo": "2014-01-03",
+            },
+        )
+        assert first_lookup.status_code == 200
+        assert first_lookup.json()["item"]["lookup"]["dateRange"] == {"from": "2014-01-01", "to": "2014-01-03"}
+
+        second_lookup = client.post(
+            f"/api/requests/{request_id}/listings/4/vehicle-report/lookup",
+            json={
+                "registrationNumber": "XYZ9999",
+                "dateFrom": "2015-01-01",
+                "dateTo": "2015-01-03",
+            },
+        )
+        assert second_lookup.status_code == 200
+        second_item = second_lookup.json()["item"]
+        assert second_item["status"] == "running"
+        assert second_item["lastAttemptAt"]
+        assert second_item["lookup"]["registrationNumber"] == "DLU8613F"
+        assert second_item["lookup"]["dateRange"] == {"from": "2014-01-01", "to": "2014-01-03"}
+
+        reopened_response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        reopened_item = reopened_response.json()["item"]
+        if reopened_item["status"] == "running":
+            assert reopened_item["lastAttemptAt"]
+            assert reopened_item["lookup"]["registrationNumber"] == "DLU8613F"
+            assert reopened_item["lookup"]["dateRange"] == {"from": "2014-01-01", "to": "2014-01-03"}
+
+        final_item = _wait_for_vehicle_report_state(client, request_id, "4")
+        assert final_item["report"]["registration_number"] == "DLU8613F"
+        assert final_item["report"]["first_registration_date"] == "2014-01-02"
+
+
+def test_vehicle_report_reopen_after_miss_preserves_last_attempted_date_range(monkeypatch, tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+
+    monkeypatch.setattr(service_module, "fetch_otomoto_vehicle_identity", lambda url, **kwargs: _fake_identity())
+    monkeypatch.setattr(
+        service_module.VehicleHistoryClient,
+        "fetch_report",
+        lambda self, registration_number, vin_number, first_registration_date: (_ for _ in ()).throw(
+            RuntimeError("HistoriaPojazdu vehicle-data failed with HTTP 404: Not Found")
+        ),
+    )
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        initial_response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        assert initial_response.status_code == 200
+        assert initial_response.json()["item"]["status"] == "needs_input"
+
+        lookup_response = client.post(
+            f"/api/requests/{request_id}/listings/4/vehicle-report/lookup",
+            json={
+                "registrationNumber": "DLU8613F",
+                "dateFrom": "2014-01-10",
+                "dateTo": "2014-01-12",
+            },
+        )
+        assert lookup_response.status_code == 200
+
+        final_item = _wait_for_vehicle_report_state(client, request_id, "4")
+        assert final_item["status"] == "needs_input"
+        assert final_item["lookup"]["dateRange"] == {"from": "2014-01-10", "to": "2014-01-12"}
+        assert final_item["lookupOptions"]["dateRange"] == {"from": "2014-01-10", "to": "2014-01-12"}
+
+        reopened_response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        reopened_item = reopened_response.json()["item"]
+        assert reopened_item["status"] == "needs_input"
+        assert reopened_item["lookup"]["dateRange"] == {"from": "2014-01-10", "to": "2014-01-12"}
+        assert reopened_item["lookupOptions"]["dateRange"] == {"from": "2014-01-10", "to": "2014-01-12"}
+
+
+def test_orphaned_running_vehicle_report_lookup_is_recovered_on_service_restart(tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+    status_path = service._vehicle_report_status_path(request_id, "4")
+    service._write_vehicle_report_status(
+        status_path,
+        status="running",
+        identity=_fake_identity(),
+        progress_message="Checking 2014-01-10...",
+        lookup={
+            "registrationNumber": "DLU8613F",
+            "dateRange": {"from": "2014-01-10", "to": "2014-01-12"},
+            "currentDate": "2014-01-10",
+        },
+    )
+
+    restarted_service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    restarted_app = create_app(data_dir=tmp_path, service=restarted_service)
+
+    with TestClient(restarted_app) as client:
+        response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        assert response.status_code == 200
+        item = response.json()["item"]
+        assert item["status"] == "needs_input"
+        assert item["error"] == "The previous vehicle report lookup was interrupted. Please try again."
+        assert item["lookup"]["dateRange"] == {"from": "2014-01-10", "to": "2014-01-12"}
+        assert item["lookupOptions"]["dateRange"] == {"from": "2014-01-10", "to": "2014-01-12"}
+        assert item["identity"]["vin"] == "WDDSJ4EB2EN056917"
+
+
+def test_vehicle_report_lookup_unexpected_worker_failure_transitions_to_failed(monkeypatch, tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+
+    monkeypatch.setattr(service_module, "fetch_otomoto_vehicle_identity", lambda url, **kwargs: _fake_identity())
+
+    def fake_fetch_report(self, registration_number: str, vin_number: str, first_registration_date: str) -> VehicleHistoryReport:
+        if first_registration_date == "2014-01-01":
+            raise RuntimeError("HistoriaPojazdu vehicle-data failed with HTTP 404: Not Found")
+        raise ValueError("boom")
+
+    monkeypatch.setattr(service_module.VehicleHistoryClient, "fetch_report", fake_fetch_report)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        initial_response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        assert initial_response.status_code == 200
+        assert initial_response.json()["item"]["status"] == "needs_input"
+
+        lookup_response = client.post(
+            f"/api/requests/{request_id}/listings/4/vehicle-report/lookup",
+            json={
+                "registrationNumber": "DLU8613F",
+                "dateFrom": "2014-01-01",
+                "dateTo": "2014-01-02",
+            },
+        )
+        assert lookup_response.status_code == 200
+
+        final_item = _wait_for_vehicle_report_status(client, request_id, "4", "failed")
+        assert final_item["status"] == "failed"
+        assert "Vehicle report lookup stopped unexpectedly: boom" == final_item["error"]
+        assert final_item["lastAttemptAt"]
+        assert final_item["lookup"]["dateRange"] == {"from": "2014-01-01", "to": "2014-01-02"}
+        assert final_item["lookupOptions"]["dateRange"] == {"from": "2014-01-01", "to": "2014-01-02"}
+
+
+def test_vehicle_report_regenerate_is_blocked_while_async_lookup_is_running(monkeypatch, tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+
+    monkeypatch.setattr(service_module, "fetch_otomoto_vehicle_identity", lambda url, **kwargs: _fake_identity())
+
+    def fake_fetch_report(self, registration_number: str, vin_number: str, first_registration_date: str) -> VehicleHistoryReport:
+        if first_registration_date == "2014-01-01":
+            raise RuntimeError("HistoriaPojazdu vehicle-data failed with HTTP 404: Not Found")
+        time.sleep(0.25)
+        if first_registration_date == "2014-01-02":
+            report = _fake_history_report()
+            report.first_registration_date = first_registration_date
+            return report
+        raise RuntimeError("HistoriaPojazdu vehicle-data failed with HTTP 404: Not Found")
+
+    monkeypatch.setattr(service_module.VehicleHistoryClient, "fetch_report", fake_fetch_report)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        initial_response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        assert initial_response.status_code == 200
+        assert initial_response.json()["item"]["status"] == "needs_input"
+
+        lookup_response = client.post(
+            f"/api/requests/{request_id}/listings/4/vehicle-report/lookup",
+            json={
+                "registrationNumber": "DLU8613F",
+                "dateFrom": "2014-01-01",
+                "dateTo": "2014-01-03",
+            },
+        )
+        assert lookup_response.status_code == 200
+        assert lookup_response.json()["item"]["status"] == "running"
+
+        regenerate_response = client.post(f"/api/requests/{request_id}/listings/4/vehicle-report/regenerate")
+        assert regenerate_response.status_code == 502
+        assert regenerate_response.json()["detail"] == "A vehicle report lookup is already running for this listing."
+
+        final_item = _wait_for_vehicle_report_state(client, request_id, "4")
+        assert final_item["report"]["first_registration_date"] == "2014-01-02"
 
 
 def test_vehicle_report_endpoint_waits_for_ready_results(tmp_path: Path) -> None:
