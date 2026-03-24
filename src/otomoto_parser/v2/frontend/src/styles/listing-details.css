@@ -1,0 +1,147 @@
+.listing-category-button svg,
+.listing-report-button svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.listing-category-count {
+  min-width: 1.35rem;
+  min-height: 1.35rem;
+  padding: 0 0.38rem;
+  border-radius: 999px;
+  background: rgba(31, 28, 24, 0.12);
+  display: inline-grid;
+  place-items: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.category-picker-menu {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  left: 0;
+  z-index: 30;
+  min-width: 220px;
+  max-width: min(280px, 80vw);
+  padding: 0.7rem;
+  border-radius: 18px;
+  background: #fffaf2;
+  border: 1px solid #e1d5c1;
+  box-shadow: 0 18px 35px rgba(87, 65, 38, 0.14);
+  pointer-events: auto;
+}
+
+.category-picker-list {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.category-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: #4e3d2b;
+}
+
+.category-picker-option input {
+  margin: 0;
+}
+
+.category-picker-option-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.category-picker-option-label svg,
+.category-picker-add svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.category-picker-add {
+  width: 100%;
+  margin-top: 0.7rem;
+  background: #ede2d1;
+  color: #4e3d2b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.9rem;
+}
+
+.listing-report-state {
+  width: 1.15rem;
+  height: 1.15rem;
+  display: inline-grid;
+  place-items: center;
+}
+
+.listing-report-state-success {
+  color: #c8f0d0;
+}
+
+.listing-report-state-failed {
+  color: #f4b2b2;
+}
+
+.listing-place-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  align-items: center;
+  margin-bottom: 0.9rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: 18px;
+  background: #f4ece0;
+}
+
+.listing-place-button,
+.listing-place-text {
+  font: inherit;
+  color: #3d3122;
+  overflow-wrap: anywhere;
+}
+
+.listing-place-button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.listing-distance-text {
+  color: #6b5741;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.chip {
+  display: inline-flex;
+  gap: 0.45rem;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.92rem;
+  max-width: 100%;
+}
+
+.chip span:last-child {
+  overflow-wrap: anywhere;
+}
+
+.chip-link {
+  text-decoration: none;
+}
+
+.chip-link:hover {
+  filter: brightness(0.97);
+}
+
+.chip-interactive {
+  pointer-events: auto;
+  position: relative;
+  z-index: 3;
+}

@@ -1,0 +1,89 @@
+.link-break {
+  overflow-wrap: anywhere;
+}
+
+.tab {
+  display: inline-flex;
+  gap: 0.6rem;
+  align-items: center;
+  background: #ede2d1;
+  color: #4e3d2b;
+}
+
+.tab svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.tab.active {
+  background: #1f1c18;
+  color: #fff9f0;
+}
+
+.listing-grid {
+  margin-top: 1rem;
+  min-width: 0;
+}
+
+.results-controls,
+.results-footer,
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.results-controls {
+  justify-content: flex-end;
+}
+
+.results-location-status {
+  max-width: min(22rem, 100%);
+  text-align: right;
+}
+
+.page-size-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.8rem;
+  border-radius: 999px;
+  background: #ede2d1;
+}
+
+.page-size-control select {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: #1f1c18;
+}
+
+.pagination-button {
+  background: #ede2d1;
+  color: #4e3d2b;
+  padding: 0.45rem 0.7rem;
+  min-width: 2.25rem;
+  min-height: 2.25rem;
+}
+
+.pagination-button-icon {
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+}
+
+.pagination-button-icon svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.pagination-button.active {
+  background: #1f1c18;
+  color: #fff9f0;
+}
+
+.pagination-ellipsis {
+  color: #6c5944;
+  padding: 0 0.1rem;
+}

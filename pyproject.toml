@@ -29,6 +29,8 @@ where = ["src"]
 dev = [
   "httpx>=0.28.0",
   "pytest>=8.0.0",
+  "pytest-cov>=6.0.0",
+  "ruff>=0.11.0",
 ]
 
 [project.scripts]
@@ -38,3 +40,22 @@ parser-app = "otomoto_parser.v2.app:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--cov=otomoto_parser --cov-report=term-missing --cov-report=json:coverage.json --cov-fail-under=80"
+
+[tool.coverage.run]
+branch = true
+source = ["otomoto_parser"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["F", "C90"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 12

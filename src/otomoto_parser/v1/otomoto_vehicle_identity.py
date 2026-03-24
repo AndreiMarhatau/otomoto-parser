@@ -32,6 +32,14 @@ class OtomotoVehicleIdentity:
     registration_number: str | None
 
 
+@dataclass(frozen=True)
+class OtomotoPageRequestOptions:
+    cookie_header: str | None = None
+    user_agent: str = DEFAULT_USER_AGENT
+    accept_language: str = DEFAULT_ACCEPT_LANGUAGE
+    timeout_s: float = 45.0
+
+
 def _extract_next_data(html: str) -> dict[str, Any]:
     match = re.search(
         r'<script\b(?=[^>]*\bid=["\']__NEXT_DATA__["\'])(?=[^>]*\btype=["\']application/json["\'])[^>]*>(?P<body>.*?)</script>',
@@ -122,39 +130,40 @@ def extract_otomoto_advert_from_html(html: str) -> dict[str, Any]:
 
 def fetch_otomoto_vehicle_identity(
     url: str,
-    *,
-    cookie_header: str | None = None,
-    user_agent: str = DEFAULT_USER_AGENT,
-    accept_language: str = DEFAULT_ACCEPT_LANGUAGE,
-    timeout_s: float = 45.0,
+    options: OtomotoPageRequestOptions | None = None,
+    **legacy_kwargs: object,
 ) -> OtomotoVehicleIdentity:
-    headers = {
-        "Accept-Language": accept_language,
-        "User-Agent": user_agent,
-    }
-    if cookie_header:
-        headers["Cookie"] = cookie_header
-    request = Request(url, headers=headers, method="GET")
-    with urlopen(request, timeout=timeout_s) as response:
-        html = response.read().decode("utf-8")
+    html = _fetch_otomoto_page_html(url, _resolve_page_request_options(options, legacy_kwargs))
     return extract_otomoto_vehicle_identity_from_html(html)
 
 
 def fetch_otomoto_listing_page_data(
     url: str,
-    *,
-    cookie_header: str | None = None,
-    user_agent: str = DEFAULT_USER_AGENT,
-    accept_language: str = DEFAULT_ACCEPT_LANGUAGE,
-    timeout_s: float = 45.0,
+    options: OtomotoPageRequestOptions | None = None,
+    **legacy_kwargs: object,
 ) -> dict[str, Any]:
-    headers = {
-        "Accept-Language": accept_language,
-        "User-Agent": user_agent,
-    }
-    if cookie_header:
-        headers["Cookie"] = cookie_header
-    request = Request(url, headers=headers, method="GET")
-    with urlopen(request, timeout=timeout_s) as response:
-        html = response.read().decode("utf-8")
+    html = _fetch_otomoto_page_html(url, _resolve_page_request_options(options, legacy_kwargs))
     return extract_otomoto_advert_from_html(html)
+
+
+def _resolve_page_request_options(
+    options: OtomotoPageRequestOptions | None,
+    legacy_kwargs: dict[str, object],
+) -> OtomotoPageRequestOptions:
+    if options is None:
+        return OtomotoPageRequestOptions(**legacy_kwargs)
+    if legacy_kwargs:
+        raise TypeError("Otomoto fetch helpers accept either options or legacy keyword arguments, not both.")
+    return options
+
+
+def _fetch_otomoto_page_html(url: str, options: OtomotoPageRequestOptions) -> str:
+    headers = {
+        "Accept-Language": options.accept_language,
+        "User-Agent": options.user_agent,
+    }
+    if options.cookie_header:
+        headers["Cookie"] = options.cookie_header
+    request = Request(url, headers=headers, method="GET")
+    with urlopen(request, timeout=options.timeout_s) as response:
+        return response.read().decode("utf-8")

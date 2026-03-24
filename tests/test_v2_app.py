@@ -2586,7 +2586,6 @@ def test_vehicle_report_lookup_cancel_does_not_overwrite_finished_cancelled_stat
         request_id = create_response.json()["item"]["id"]
         _wait_until_ready(client, request_id)
 
-    listing = service._resolve_listing_for_report(request_id, "4")
     status_path = service._vehicle_report_status_path(request_id, "4")
     future_key = (request_id, "4")
 
@@ -2644,7 +2643,6 @@ def test_vehicle_report_lookup_cancel_does_not_overwrite_finished_terminal_state
         request_id = create_response.json()["item"]["id"]
         _wait_until_ready(client, request_id)
 
-    listing = service._resolve_listing_for_report(request_id, "4")
     status_path = service._vehicle_report_status_path(request_id, "4")
     future_key = (request_id, "4")
 
