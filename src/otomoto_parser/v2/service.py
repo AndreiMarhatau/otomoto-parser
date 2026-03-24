@@ -24,8 +24,8 @@ CATEGORY_FAVORITES = "Favorites"
 
 SYSTEM_CATEGORY_ORDER = [
     CATEGORY_PRICE_OUT_OF_RANGE,
-    CATEGORY_DATA_NOT_VERIFIED,
     CATEGORY_IMPORTED_FROM_US,
+    CATEGORY_DATA_NOT_VERIFIED,
     CATEGORY_TO_BE_CHECKED,
 ]
 ASSIGNABLE_CATEGORY_ORDER = [CATEGORY_FAVORITES]
@@ -150,10 +150,10 @@ def summarize_record(record: dict[str, Any]) -> dict[str, Any]:
     category = CATEGORY_TO_BE_CHECKED
     if _is_out_of_range_price_evaluation(price_evaluation):
         category = CATEGORY_PRICE_OUT_OF_RANGE
-    elif data_verified is False:
-        category = CATEGORY_DATA_NOT_VERIFIED
     elif _is_us_origin(country_origin):
         category = CATEGORY_IMPORTED_FROM_US
+    elif data_verified is False:
+        category = CATEGORY_DATA_NOT_VERIFIED
 
     return {
         "id": record.get("item_id") or record.get("item_key"),
@@ -187,8 +187,8 @@ def build_categorized_payload(results_path: Path) -> dict[str, Any]:
 
     categories = {
         CATEGORY_PRICE_OUT_OF_RANGE: [],
-        CATEGORY_DATA_NOT_VERIFIED: [],
         CATEGORY_IMPORTED_FROM_US: [],
+        CATEGORY_DATA_NOT_VERIFIED: [],
         CATEGORY_TO_BE_CHECKED: [],
     }
     for listing in listings:

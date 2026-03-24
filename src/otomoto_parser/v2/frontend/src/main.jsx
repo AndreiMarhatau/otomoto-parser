@@ -5,8 +5,8 @@ import "./styles.css";
 
 const systemCategoryOrder = [
   "Price evaluation out of range",
-  "Data not verified",
   "Imported from US",
+  "Data not verified",
   "To be checked",
 ];
 
