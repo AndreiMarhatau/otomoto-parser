@@ -37,6 +37,10 @@ class VehicleReportLookupPayload(BaseModel):
     dateTo: str
 
 
+class SettingsPayload(BaseModel):
+    openaiApiKey: str | None = None
+
+
 _GEOCODE_CACHE: dict[str, dict[str, Any] | None] = {}
 
 
@@ -106,6 +110,14 @@ def create_app(
     @app.get("/api/requests")
     def list_requests() -> dict[str, Any]:
         return {"items": _service().list_requests()}
+
+    @app.get("/api/settings")
+    def get_settings_endpoint() -> dict[str, Any]:
+        return {"item": _service().get_settings()}
+
+    @app.put("/api/settings")
+    def update_settings_endpoint(payload: SettingsPayload) -> dict[str, Any]:
+        return {"item": _service().update_settings(openai_api_key=payload.openaiApiKey)}
 
     @app.post("/api/requests", status_code=201)
     def create_request_endpoint(payload: CreateRequestPayload) -> dict[str, Any]:
@@ -282,6 +294,52 @@ def create_app(
             raise HTTPException(status_code=409, detail="Results are not ready yet.")
         try:
             item = _service().cancel_vehicle_report_lookup(request_id, listing_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Listing not found.") from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"item": item}
+
+    @app.get("/api/requests/{request_id}/listings/{listing_id}/red-flags")
+    def get_red_flag_analysis_endpoint(request_id: str, listing_id: str) -> dict[str, Any]:
+        try:
+            request = _service().get_request(request_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Request not found.") from exc
+        if not request["resultsReady"]:
+            raise HTTPException(status_code=409, detail="Results are not ready yet.")
+        try:
+            item = _service().get_red_flag_analysis(request_id, listing_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Listing not found.") from exc
+        return {"item": item}
+
+    @app.post("/api/requests/{request_id}/listings/{listing_id}/red-flags")
+    def start_red_flag_analysis_endpoint(request_id: str, listing_id: str) -> dict[str, Any]:
+        try:
+            request = _service().get_request(request_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Request not found.") from exc
+        if not request["resultsReady"]:
+            raise HTTPException(status_code=409, detail="Results are not ready yet.")
+        try:
+            item = _service().start_red_flag_analysis(request_id, listing_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Listing not found.") from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"item": item}
+
+    @app.post("/api/requests/{request_id}/listings/{listing_id}/red-flags/cancel")
+    def cancel_red_flag_analysis_endpoint(request_id: str, listing_id: str) -> dict[str, Any]:
+        try:
+            request = _service().get_request(request_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Request not found.") from exc
+        if not request["resultsReady"]:
+            raise HTTPException(status_code=409, detail="Results are not ready yet.")
+        try:
+            item = _service().cancel_red_flag_analysis(request_id, listing_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="Listing not found.") from exc
         except RuntimeError as exc:

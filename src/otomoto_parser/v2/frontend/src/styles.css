@@ -134,6 +134,12 @@ textarea {
   margin-bottom: 1.5rem;
 }
 
+.hero-links {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
 .hero h1 {
   margin: 0.25rem 0 0;
   font-size: clamp(2rem, 4vw, 3.7rem);
@@ -752,6 +758,53 @@ textarea {
   margin: 0 0 0.9rem;
 }
 
+.analysis-section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: start;
+}
+
+.analysis-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.warning-box {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.9rem 1rem;
+  border-radius: 18px;
+  background: #fff0cc;
+  border: 1px solid #f2d58e;
+  color: #7a5308;
+  margin-bottom: 1rem;
+}
+
+.warning-box svg {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: 0 0 auto;
+}
+
+.analysis-result {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.analysis-result p {
+  margin: 0;
+}
+
+.analysis-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
 .report-details summary {
   cursor: pointer;
   font-weight: 700;
@@ -818,6 +871,17 @@ textarea {
   flex-wrap: wrap;
   gap: 0.75rem;
   margin-top: 1rem;
+}
+
+.settings-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.settings-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
 }
 
 .chip-label {

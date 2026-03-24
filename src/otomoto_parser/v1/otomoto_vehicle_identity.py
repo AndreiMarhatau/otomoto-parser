@@ -89,8 +89,7 @@ def decrypt_otomoto_secret(encrypted_value: str, advert_id: str) -> str:
 
 
 def extract_otomoto_vehicle_identity_from_html(html: str) -> OtomotoVehicleIdentity:
-    next_data = _extract_next_data(html)
-    advert = next_data["props"]["pageProps"]["advert"]
+    advert = extract_otomoto_advert_from_html(html)
     advert_id = str(advert["id"])
     parameters_dict = advert["parametersDict"]
 
@@ -113,6 +112,14 @@ def extract_otomoto_vehicle_identity_from_html(html: str) -> OtomotoVehicleIdent
     )
 
 
+def extract_otomoto_advert_from_html(html: str) -> dict[str, Any]:
+    next_data = _extract_next_data(html)
+    advert = next_data["props"]["pageProps"]["advert"]
+    if not isinstance(advert, dict):
+        raise RuntimeError("Could not find advert data in the Otomoto advert page.")
+    return advert
+
+
 def fetch_otomoto_vehicle_identity(
     url: str,
     *,
@@ -131,3 +138,23 @@ def fetch_otomoto_vehicle_identity(
     with urlopen(request, timeout=timeout_s) as response:
         html = response.read().decode("utf-8")
     return extract_otomoto_vehicle_identity_from_html(html)
+
+
+def fetch_otomoto_listing_page_data(
+    url: str,
+    *,
+    cookie_header: str | None = None,
+    user_agent: str = DEFAULT_USER_AGENT,
+    accept_language: str = DEFAULT_ACCEPT_LANGUAGE,
+    timeout_s: float = 45.0,
+) -> dict[str, Any]:
+    headers = {
+        "Accept-Language": accept_language,
+        "User-Agent": user_agent,
+    }
+    if cookie_header:
+        headers["Cookie"] = cookie_header
+    request = Request(url, headers=headers, method="GET")
+    with urlopen(request, timeout=timeout_s) as response:
+        html = response.read().decode("utf-8")
+    return extract_otomoto_advert_from_html(html)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import threading
@@ -11,10 +12,15 @@ from datetime import UTC, date, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Callable
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from ..v1.history_report import CancellationRequested, VehicleHistoryClient, VehicleHistoryReport
-from ..v1.otomoto_vehicle_identity import OtomotoVehicleIdentity, fetch_otomoto_vehicle_identity
+from ..v1.otomoto_vehicle_identity import (
+    OtomotoVehicleIdentity,
+    fetch_otomoto_listing_page_data,
+    fetch_otomoto_vehicle_identity,
+)
 from ..v1.aggregation import generate_aggregations
 from ..v1.parser import RUN_MODE_APPEND_NEWER, RUN_MODE_FULL, RUN_MODE_RESUME, parse_pages
 
@@ -41,6 +47,8 @@ REQUEST_STATUS_FAILED = "failed"
 CUSTOM_CATEGORY_PREFIX = "custom:"
 
 ParserRunner = Callable[..., Any]
+ListingPageFetcher = Callable[..., dict[str, Any]]
+RedFlagAnalyzer = Callable[[str, dict[str, Any], threading.Event], dict[str, Any]]
 
 REPORT_STATUS_IDLE = "idle"
 REPORT_STATUS_RUNNING = "running"
@@ -66,11 +74,33 @@ REPORT_PROGRESS_FETCHING_REPORT = "Fetching vehicle history report..."
 
 DEFAULT_REPORT_LOOKUP_DAYS_BACK = 120
 DEFAULT_REPORT_LOOKUP_DAYS_FORWARD = 14
+OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
+OPENAI_REDFLAG_MODEL = "gpt-5.4"
 STRICT_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+ANALYSIS_STATUS_IDLE = "idle"
+ANALYSIS_STATUS_RUNNING = "running"
+ANALYSIS_STATUS_SUCCESS = "success"
+ANALYSIS_STATUS_FAILED = "failed"
+ANALYSIS_STATUS_CANCELLING = "cancelling"
+ANALYSIS_STATUS_CANCELLED = "cancelled"
+TERMINAL_ANALYSIS_STATUSES = {
+    ANALYSIS_STATUS_SUCCESS,
+    ANALYSIS_STATUS_FAILED,
+    ANALYSIS_STATUS_CANCELLED,
+}
+
+ANALYSIS_PROGRESS_COLLECTING_DATA = "Collecting listing data..."
+ANALYSIS_PROGRESS_CALLING_MODEL = "Running GPT-5.4 red-flag analysis..."
 
 
 class VehicleReportNeedsInput(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class SettingsState:
+    openai_api_key: str | None = None
 
 
 def utc_now() -> str:
@@ -88,6 +118,144 @@ def _write_json(path: Path, payload: Any) -> None:
     temp_path = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
     temp_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     temp_path.replace(path)
+
+
+def _mask_secret(secret: str | None) -> str | None:
+    if not isinstance(secret, str) or not secret:
+        return None
+    if len(secret) <= 8:
+        return "*" * len(secret)
+    return f"{secret[:4]}...{secret[-4:]}"
+
+
+def _extract_response_output_text(payload: dict[str, Any]) -> str:
+    direct = payload.get("output_text")
+    if isinstance(direct, str) and direct.strip():
+        return direct.strip()
+
+    parts: list[str] = []
+    for item in payload.get("output", []):
+        if not isinstance(item, dict):
+            continue
+        for content in item.get("content", []):
+            if not isinstance(content, dict):
+                continue
+            if content.get("type") == "output_text" and isinstance(content.get("text"), str):
+                parts.append(content["text"])
+    return "\n".join(part.strip() for part in parts if part and part.strip()).strip()
+
+
+def _parse_analysis_json(text: str) -> dict[str, Any]:
+    if not text:
+        raise RuntimeError("The OpenAI response was empty.")
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if not match:
+            raise RuntimeError("The OpenAI response was not valid JSON.")
+        try:
+            payload = json.loads(match.group(0))
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("The OpenAI response was not valid JSON.") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError("The OpenAI response JSON must be an object.")
+    return payload
+
+
+def _build_report_snapshot_id(payload: dict[str, Any] | None) -> str:
+    if not isinstance(payload, dict):
+        return "missing"
+    canonical = {
+        "identity": payload.get("identity"),
+        "report": payload.get("report"),
+        "summary": payload.get("summary"),
+        "retrievedAt": payload.get("retrievedAt"),
+    }
+    encoded = json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def default_red_flag_analyzer(api_key: str, model_input: dict[str, Any], cancel_event: threading.Event) -> dict[str, Any]:
+    if cancel_event.is_set():
+        raise CancellationRequested("Cancelled before the model request was sent.")
+
+    request_payload = {
+        "model": OPENAI_REDFLAG_MODEL,
+        "tools": [{"type": "web_search"}],
+        "reasoning": {"effort": "medium"},
+        "input": [
+            {
+                "role": "system",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": (
+                            "You analyze used-car listings and identify only serious red flags. "
+                            "Use the provided listing data first, then use web search when the VIN or other identifiers could reveal recalls, salvage history, auction history, theft reports, title issues, or other material risks. "
+                            "Return strict JSON with keys summary and redFlags. "
+                            "summary must be a short string. redFlags must be an array of short strings. "
+                            "List only high-signal concerns; if there are no serious red flags, return an empty array."
+                        ),
+                    }
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": json.dumps(model_input, ensure_ascii=False),
+                    }
+                ],
+            },
+        ],
+    }
+    request = Request(
+        OPENAI_RESPONSES_URL,
+        data=json.dumps(request_payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=90) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"OpenAI request failed with HTTP {exc.code}: {detail}") from exc
+    except (URLError, TimeoutError, ValueError) as exc:
+        raise RuntimeError(f"OpenAI request failed: {exc}") from exc
+
+    if cancel_event.is_set():
+        raise CancellationRequested("Cancelled after the model response was received.")
+
+    text = _extract_response_output_text(payload)
+    parsed = _parse_analysis_json(text)
+    raw_flags = parsed.get("redFlags", [])
+    if not isinstance(raw_flags, list):
+        raise RuntimeError("The OpenAI response must contain a redFlags array.")
+    red_flags = []
+    for value in raw_flags:
+        text_value = str(value).strip()
+        if text_value:
+            red_flags.append(text_value)
+    summary = str(parsed.get("summary") or "").strip()
+    if not summary:
+        summary = "No serious red flags found." if not red_flags else f"{len(red_flags)} serious red flag(s) found."
+
+    output = payload.get("output", [])
+    web_search_used = any(
+        isinstance(item, dict) and str(item.get("type", "")).startswith("web_search")
+        for item in output
+    )
+    return {
+        "summary": summary,
+        "redFlags": red_flags,
+        "webSearchUsed": web_search_used,
+    }
 
 
 def _date_range_defaults() -> tuple[str, str]:
@@ -299,6 +467,7 @@ class RequestPaths:
     saved_categories_path: Path
     excel_path: Path
     reports_dir: Path
+    analyses_dir: Path
 
 
 class RequestStore:
@@ -359,31 +528,68 @@ class RequestStore:
             self._save(filtered)
 
 
+class SettingsStore:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self._lock = threading.Lock()
+
+    def read(self) -> SettingsState:
+        with self._lock:
+            payload = _read_json(self.path, {})
+        api_key = payload.get("openaiApiKey")
+        if isinstance(api_key, str):
+            api_key = api_key.strip() or None
+        else:
+            api_key = None
+        return SettingsState(openai_api_key=api_key)
+
+    def write(self, state: SettingsState) -> SettingsState:
+        with self._lock:
+            _write_json(
+                self.path,
+                {
+                    "openaiApiKey": state.openai_api_key,
+                },
+            )
+        return state
+
+
 class ParserAppService:
     def __init__(
         self,
         data_dir: Path,
         *,
         parser_runner: ParserRunner = parse_pages,
+        listing_page_fetcher: ListingPageFetcher = fetch_otomoto_listing_page_data,
+        red_flag_analyzer: RedFlagAnalyzer = default_red_flag_analyzer,
         parser_options: dict[str, Any] | None = None,
     ) -> None:
         self.data_dir = data_dir
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.store = RequestStore(self.data_dir / "requests.json")
+        self.settings_store = SettingsStore(self.data_dir / "settings.json")
         self.parser_runner = parser_runner
+        self.listing_page_fetcher = listing_page_fetcher
+        self.red_flag_analyzer = red_flag_analyzer
         self.parser_options = parser_options or {}
-        self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="parser-app")
+        self.executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="parser-app")
         self._futures: dict[str, Future[Any]] = {}
         self._report_futures: dict[tuple[str, str], Future[Any]] = {}
         self._report_cancel_events: dict[tuple[str, str], threading.Event] = {}
+        self._analysis_futures: dict[tuple[str, str, str], Future[Any]] = {}
+        self._analysis_cancel_events: dict[tuple[str, str, str], threading.Event] = {}
+        self._analysis_current_runs: dict[tuple[str, str], str] = {}
         self._lock = threading.Lock()
         self._request_locks: dict[str, threading.Lock] = {}
         self._recover_in_progress_requests()
         self._recover_in_progress_report_lookups()
+        self._recover_in_progress_red_flag_analyses()
 
     def shutdown(self) -> None:
         with self._lock:
             for event in self._report_cancel_events.values():
+                event.set()
+            for event in self._analysis_cancel_events.values():
                 event.set()
         self.executor.shutdown(wait=False, cancel_futures=True)
 
@@ -410,6 +616,28 @@ class ParserAppService:
                     continue
                 self._write_json_recovered_report_status(status_path, status)
 
+    def _recover_in_progress_red_flag_analyses(self) -> None:
+        for request in self.store.list_requests():
+            paths = self.request_paths(request["id"])
+            if not paths.analyses_dir.exists():
+                continue
+            for status_path in paths.analyses_dir.glob("*.json"):
+                status = _read_json(status_path, None)
+                if not isinstance(status, dict):
+                    continue
+                if status.get("status") not in {ANALYSIS_STATUS_RUNNING, ANALYSIS_STATUS_CANCELLING}:
+                    continue
+                _write_json(
+                    status_path,
+                    {
+                        "status": ANALYSIS_STATUS_FAILED,
+                        "lastAttemptAt": utc_now(),
+                        "lastError": "The previous red-flag analysis was interrupted. Please run it again.",
+                        "retrievedAt": status.get("retrievedAt"),
+                        "progressMessage": None,
+                    },
+                )
+
     def request_paths(self, request_id: str) -> RequestPaths:
         request_dir = self.data_dir / "requests" / request_id
         return RequestPaths(
@@ -420,6 +648,7 @@ class ParserAppService:
             saved_categories_path=request_dir / "saved-categories.json",
             excel_path=request_dir / "aggregations.xlsx",
             reports_dir=request_dir / "vehicle-reports",
+            analyses_dir=request_dir / "red-flag-analyses",
         )
 
     def list_requests(self) -> list[dict[str, Any]]:
@@ -430,6 +659,30 @@ class ParserAppService:
         if request is None:
             raise KeyError(request_id)
         return request
+
+    def get_settings(self) -> dict[str, Any]:
+        stored = self.settings_store.read()
+        env_key = os.environ.get("OPENAI_API_KEY", "").strip() or None
+        source = "stored" if stored.openai_api_key else "environment" if env_key else None
+        configured_key = stored.openai_api_key or env_key
+        return {
+            "openaiApiKeyConfigured": configured_key is not None,
+            "openaiApiKeySource": source,
+            "openaiApiKeyMasked": _mask_secret(configured_key),
+            "openaiApiKeyStored": stored.openai_api_key is not None,
+        }
+
+    def update_settings(self, *, openai_api_key: str | None) -> dict[str, Any]:
+        cleaned = openai_api_key.strip() if isinstance(openai_api_key, str) else None
+        self.settings_store.write(SettingsState(openai_api_key=cleaned or None))
+        return self.get_settings()
+
+    def _resolve_openai_api_key(self) -> str | None:
+        stored = self.settings_store.read().openai_api_key
+        if stored:
+            return stored
+        env_key = os.environ.get("OPENAI_API_KEY", "").strip()
+        return env_key or None
 
     def create_request(self, source_url: str) -> dict[str, Any]:
         now = utc_now()
@@ -569,11 +822,15 @@ class ParserAppService:
             future = self._futures.get(request_id)
             if future is not None and not future.done():
                 raise RuntimeError("Cannot delete a request while it is still running.")
+            if self._has_active_request_subtasks(request_id):
+                raise RuntimeError("Cannot delete a request while a vehicle report lookup or red-flag analysis is still running.")
         with request_lock:
             with self._lock:
                 future = self._futures.get(request_id)
                 if future is not None and not future.done():
                     raise RuntimeError("Cannot delete a request while it is still running.")
+                if self._has_active_request_subtasks(request_id):
+                    raise RuntimeError("Cannot delete a request while a vehicle report lookup or red-flag analysis is still running.")
             request = self.get_request(request_id)
             shutil.rmtree(Path(request["runDir"]), ignore_errors=True)
             self.store.delete_request(request_id)
@@ -660,6 +917,8 @@ class ParserAppService:
             with self._lock:
                 active_future = self._report_futures.get(future_key)
                 report_lookup_running = active_future is not None and not active_future.done()
+            if force_refresh and self._has_active_analysis_for_listing(request_id, canonical_listing_id):
+                raise RuntimeError("Cannot regenerate the vehicle report while red-flag analysis is still running for this listing.")
             if not force_refresh:
                 cached = _read_json(cache_path, None)
                 if cached is not None:
@@ -841,6 +1100,352 @@ class ParserAppService:
             )
             return self._build_vehicle_report_state_payload(request_id, listing)
 
+    def get_red_flag_analysis(self, request_id: str, listing_id: str) -> dict[str, Any]:
+        with self._request_lock(request_id):
+            listing = self._resolve_listing_for_report(request_id, listing_id)
+            return self._build_red_flag_analysis_state_payload(request_id, listing)
+
+    def start_red_flag_analysis(self, request_id: str, listing_id: str) -> dict[str, Any]:
+        with self._request_lock(request_id):
+            listing = self._resolve_listing_for_report(request_id, listing_id)
+            canonical_listing_id = listing["id"]
+            api_key = self._resolve_openai_api_key()
+            if not api_key:
+                raise RuntimeError("Configure an OpenAI API key in Settings before running red-flag analysis.")
+
+            status_path = self._red_flag_status_path(request_id, canonical_listing_id)
+            cache_path = self._red_flag_analysis_path(request_id, canonical_listing_id)
+            listing_key = (request_id, canonical_listing_id)
+            with self._lock:
+                active_run_id = self._analysis_current_runs.get(listing_key)
+                active_future = self._analysis_futures.get((request_id, canonical_listing_id, active_run_id)) if active_run_id else None
+                active_cancel_event = self._analysis_cancel_events.get((request_id, canonical_listing_id, active_run_id)) if active_run_id else None
+                if active_future is not None and not active_future.done():
+                    if active_cancel_event is not None and active_cancel_event.is_set():
+                        raise RuntimeError("Red-flag analysis cancellation is still in progress for this listing.")
+                    raise RuntimeError("A red-flag analysis is already running for this listing.")
+                run_id = uuid.uuid4().hex
+                self._analysis_current_runs[listing_key] = run_id
+            if cache_path.exists():
+                cache_path.unlink()
+            self._write_red_flag_analysis_status(
+                status_path,
+                status=ANALYSIS_STATUS_RUNNING,
+                progress_message=ANALYSIS_PROGRESS_COLLECTING_DATA,
+                run_id=run_id,
+            )
+            self._start_red_flag_analysis_job(request_id, canonical_listing_id, run_id, listing, api_key)
+            return self._build_red_flag_analysis_state_payload(request_id, listing)
+
+    def cancel_red_flag_analysis(self, request_id: str, listing_id: str) -> dict[str, Any]:
+        with self._request_lock(request_id):
+            listing = self._resolve_listing_for_report(request_id, listing_id)
+            canonical_listing_id = listing["id"]
+            status_path = self._red_flag_status_path(request_id, canonical_listing_id)
+            listing_key = (request_id, canonical_listing_id)
+            with self._lock:
+                active_run_id = self._analysis_current_runs.get(listing_key)
+                future_key = (request_id, canonical_listing_id, active_run_id) if active_run_id else None
+                active_future = self._analysis_futures.get(future_key) if future_key else None
+                cancel_event = self._analysis_cancel_events.get(future_key) if future_key else None
+                is_running = active_future is not None and not active_future.done()
+                if not is_running or cancel_event is None:
+                    raise RuntimeError("No active red-flag analysis is currently running for this listing.")
+                cancel_event.set()
+                if active_future.cancel():
+                    if future_key is not None:
+                        self._analysis_futures.pop(future_key, None)
+                        self._analysis_cancel_events.pop(future_key, None)
+                    self._write_red_flag_analysis_status(
+                        status_path,
+                        status=ANALYSIS_STATUS_CANCELLED,
+                        error="Red-flag analysis was cancelled.",
+                        progress_message=None,
+                        run_id=active_run_id,
+                    )
+                    return self._build_red_flag_analysis_state_payload(request_id, listing)
+            latest_status = _read_json(status_path, {})
+            if latest_status.get("status") in TERMINAL_ANALYSIS_STATUSES:
+                return self._build_red_flag_analysis_state_payload(request_id, listing)
+            self._write_red_flag_analysis_status(
+                status_path,
+                status=ANALYSIS_STATUS_CANCELLING,
+                error="Red-flag analysis cancellation requested.",
+                progress_message="Cancelling red-flag analysis...",
+                run_id=active_run_id,
+            )
+            return self._build_red_flag_analysis_state_payload(request_id, listing)
+
+    def _has_active_request_subtasks(self, request_id: str) -> bool:
+        for (active_request_id, _), future in self._report_futures.items():
+            if active_request_id == request_id and not future.done():
+                return True
+        for (active_request_id, _, _), future in self._analysis_futures.items():
+            if active_request_id == request_id and not future.done():
+                return True
+        return False
+
+    def _has_active_analysis_for_listing(self, request_id: str, listing_id: str) -> bool:
+        for (active_request_id, active_listing_id, _), future in self._analysis_futures.items():
+            if active_request_id == request_id and active_listing_id == listing_id and not future.done():
+                return True
+        return False
+
+    def _red_flag_analysis_path(self, request_id: str, listing_id: str) -> Path:
+        paths = self.request_paths(request_id)
+        cache_key = sha256(f"{listing_id}:analysis".encode("utf-8")).hexdigest()
+        return paths.analyses_dir / f"{cache_key}.json"
+
+    def _red_flag_status_path(self, request_id: str, listing_id: str) -> Path:
+        paths = self.request_paths(request_id)
+        cache_key = sha256(f"{listing_id}:analysis:status".encode("utf-8")).hexdigest()
+        return paths.analyses_dir / f"{cache_key}.json"
+
+    def _write_red_flag_analysis_status(
+        self,
+        path: Path,
+        *,
+        status: str,
+        error: str | None = None,
+        retrieved_at: str | None = None,
+        progress_message: str | None = None,
+        run_id: str | None = None,
+    ) -> None:
+        _write_json(
+            path,
+            {
+                "runId": run_id,
+                "status": status,
+                "lastAttemptAt": utc_now(),
+                "lastError": error,
+                "retrievedAt": retrieved_at,
+                "progressMessage": progress_message,
+            },
+        )
+
+    def _build_red_flag_analysis_state_payload(self, request_id: str, listing: dict[str, Any]) -> dict[str, Any]:
+        current_status = _read_json(self._red_flag_status_path(request_id, str(listing["id"])), {})
+        cached = _read_json(self._red_flag_analysis_path(request_id, str(listing["id"])), None)
+        report_payload = _read_json(self._vehicle_report_path(request_id, str(listing["id"])), None)
+        current_report_snapshot_id = _build_report_snapshot_id(report_payload)
+        if isinstance(cached, dict):
+            cached_report_snapshot_id = cached.get("reportSnapshotId") or _build_report_snapshot_id(cached.get("vehicleReport"))
+            if cached_report_snapshot_id == current_report_snapshot_id:
+                return cached
+        if cached is not None:
+            stale_retrieved_at = cached.get("retrievedAt") if isinstance(cached, dict) else None
+            stale_last_attempt_at = cached.get("retrievedAt") if isinstance(cached, dict) else None
+            return {
+                "listingId": listing["id"],
+                "listingUrl": listing.get("url"),
+                "listingTitle": listing.get("title"),
+                "retrievedAt": stale_retrieved_at,
+                "lastAttemptAt": stale_last_attempt_at,
+                "status": ANALYSIS_STATUS_IDLE,
+                "progressMessage": None,
+                "error": "Analysis is outdated because the vehicle report changed. Run it again.",
+                "analysis": None,
+                "model": OPENAI_REDFLAG_MODEL,
+                "reportReady": report_payload is not None,
+                "reportSnapshotId": current_report_snapshot_id,
+                "analysisReportSnapshotId": cached.get("reportSnapshotId") if isinstance(cached, dict) else None,
+                "stale": True,
+                "apiKeyConfigured": self._resolve_openai_api_key() is not None,
+            }
+        report_ready = report_payload is not None
+        return {
+            "listingId": listing["id"],
+            "listingUrl": listing.get("url"),
+            "listingTitle": listing.get("title"),
+            "retrievedAt": current_status.get("retrievedAt"),
+            "lastAttemptAt": current_status.get("lastAttemptAt"),
+            "status": current_status.get("status") or ANALYSIS_STATUS_IDLE,
+            "progressMessage": current_status.get("progressMessage"),
+            "error": current_status.get("lastError"),
+            "analysis": None,
+            "model": OPENAI_REDFLAG_MODEL,
+            "reportReady": report_ready,
+            "reportSnapshotId": current_report_snapshot_id,
+            "analysisReportSnapshotId": current_status.get("reportSnapshotId"),
+            "stale": False,
+            "apiKeyConfigured": self._resolve_openai_api_key() is not None,
+        }
+
+    def _is_latest_red_flag_run(self, request_id: str, listing_id: str, run_id: str) -> bool:
+        with self._lock:
+            return self._analysis_current_runs.get((request_id, listing_id)) == run_id
+
+    def _write_latest_red_flag_analysis_status(
+        self,
+        request_id: str,
+        listing_id: str,
+        run_id: str,
+        status_path: Path,
+        *,
+        status: str,
+        error: str | None = None,
+        retrieved_at: str | None = None,
+        progress_message: str | None = None,
+    ) -> None:
+        if not self._is_latest_red_flag_run(request_id, listing_id, run_id):
+            return
+        self._write_red_flag_analysis_status(
+            status_path,
+            status=status,
+            error=error,
+            retrieved_at=retrieved_at,
+            progress_message=progress_message,
+            run_id=run_id,
+        )
+
+    def _build_red_flag_model_input(self, request_id: str, listing_id: str) -> dict[str, Any]:
+        listing = self._resolve_listing_for_report(request_id, listing_id)
+        record = self._find_listing_record(request_id, listing_id)
+        listing_url = listing.get("url")
+        listing_page = None
+        if isinstance(listing_url, str) and listing_url:
+            listing_page = self.listing_page_fetcher(
+                listing_url,
+                timeout_s=float(self.parser_options.get("request_timeout_s", 45.0)),
+            )
+        report_payload = _read_json(self._vehicle_report_path(request_id, str(listing_id)), None)
+        report_snapshot_id = _build_report_snapshot_id(report_payload)
+        return {
+            "listing": listing,
+            "searchResultRaw": record,
+            "listingPageRaw": listing_page,
+            "vehicleReport": report_payload,
+            "reportSnapshotId": report_snapshot_id,
+            "notes": {
+                "vehicleReportReady": report_payload is not None,
+                "reportSnapshotId": report_snapshot_id,
+                "generatedAt": utc_now(),
+            },
+        }
+
+    def _start_red_flag_analysis_job(
+        self,
+        request_id: str,
+        listing_id: str,
+        run_id: str,
+        listing: dict[str, Any],
+        api_key: str,
+    ) -> bool:
+        future_key = (request_id, listing_id, run_id)
+        with self._lock:
+            cancel_event = threading.Event()
+            self._analysis_cancel_events[future_key] = cancel_event
+            self._analysis_futures[future_key] = self.executor.submit(
+                self._run_red_flag_analysis,
+                request_id,
+                listing_id,
+                run_id,
+                listing,
+                api_key,
+                cancel_event,
+            )
+            return True
+
+    def _run_red_flag_analysis(
+        self,
+        request_id: str,
+        listing_id: str,
+        run_id: str,
+        listing: dict[str, Any],
+        api_key: str,
+        cancel_event: threading.Event,
+    ) -> None:
+        status_path = self._red_flag_status_path(request_id, listing_id)
+        cache_path = self._red_flag_analysis_path(request_id, listing_id)
+        try:
+            model_input = self._build_red_flag_model_input(request_id, listing_id)
+            if cancel_event.is_set():
+                self._write_latest_red_flag_analysis_status(
+                    request_id,
+                    listing_id,
+                    run_id,
+                    status_path,
+                    status=ANALYSIS_STATUS_CANCELLED,
+                    error="Red-flag analysis was cancelled.",
+                )
+                return
+            self._write_latest_red_flag_analysis_status(
+                request_id,
+                listing_id,
+                run_id,
+                status_path,
+                status=ANALYSIS_STATUS_RUNNING,
+                progress_message=ANALYSIS_PROGRESS_CALLING_MODEL,
+            )
+            analysis = self.red_flag_analyzer(api_key, model_input, cancel_event)
+            if cancel_event.is_set():
+                self._write_latest_red_flag_analysis_status(
+                    request_id,
+                    listing_id,
+                    run_id,
+                    status_path,
+                    status=ANALYSIS_STATUS_CANCELLED,
+                    error="Red-flag analysis was cancelled.",
+                )
+                return
+            payload = {
+                "listingId": listing["id"],
+                "listingUrl": listing.get("url"),
+                "listingTitle": listing.get("title"),
+                "retrievedAt": utc_now(),
+                "status": ANALYSIS_STATUS_SUCCESS,
+                "error": None,
+                "model": OPENAI_REDFLAG_MODEL,
+                "reportReady": bool(model_input.get("vehicleReport")),
+                "reportSnapshotId": model_input.get("reportSnapshotId"),
+                "apiKeyConfigured": True,
+                "analysis": {
+                    "summary": str(analysis.get("summary") or "").strip(),
+                    "redFlags": [str(value).strip() for value in analysis.get("redFlags", []) if str(value).strip()],
+                    "webSearchUsed": bool(analysis.get("webSearchUsed")),
+                },
+            }
+            current_report_snapshot_id = _build_report_snapshot_id(_read_json(self._vehicle_report_path(request_id, listing_id), None))
+            if self._is_latest_red_flag_run(request_id, listing_id, run_id) and current_report_snapshot_id == model_input.get("reportSnapshotId"):
+                _write_json(cache_path, payload)
+                self._write_red_flag_analysis_status(
+                    status_path,
+                    status=ANALYSIS_STATUS_SUCCESS,
+                    retrieved_at=payload["retrievedAt"],
+                    run_id=run_id,
+                )
+            elif self._is_latest_red_flag_run(request_id, listing_id, run_id):
+                self._write_red_flag_analysis_status(
+                    status_path,
+                    status=ANALYSIS_STATUS_IDLE,
+                    error="Analysis finished after the vehicle report changed. Run it again.",
+                    run_id=run_id,
+                )
+        except CancellationRequested:
+            self._write_latest_red_flag_analysis_status(
+                request_id,
+                listing_id,
+                run_id,
+                status_path,
+                status=ANALYSIS_STATUS_CANCELLED,
+                error="Red-flag analysis was cancelled.",
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._write_latest_red_flag_analysis_status(
+                request_id,
+                listing_id,
+                run_id,
+                status_path,
+                status=ANALYSIS_STATUS_FAILED,
+                error=f"Red-flag analysis failed: {exc}",
+            )
+        finally:
+            with self._lock:
+                self._analysis_futures.pop((request_id, listing_id, run_id), None)
+                self._analysis_cancel_events.pop((request_id, listing_id, run_id), None)
+                if self._analysis_current_runs.get((request_id, listing_id)) == run_id and cancel_event.is_set():
+                    self._analysis_current_runs.pop((request_id, listing_id), None)
+
     def _attach_report_cache_metadata(self, request_id: str, items: list[dict[str, Any]]) -> None:
         for item in items:
             if not isinstance(item, dict) or item.get("id") is None:
@@ -895,7 +1500,7 @@ class ParserAppService:
         identity: OtomotoVehicleIdentity,
         history: VehicleHistoryReport,
     ) -> dict[str, Any]:
-        return {
+        payload = {
             "listingId": listing["id"],
             "listingUrl": listing.get("url"),
             "listingTitle": listing.get("title"),
@@ -909,6 +1514,8 @@ class ParserAppService:
             "report": asdict(history),
             "summary": self._build_report_summary(history),
         }
+        payload["reportSnapshotId"] = _build_report_snapshot_id(payload)
+        return payload
 
     def _build_vehicle_report_state_payload(
         self,
