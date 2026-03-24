@@ -2,10 +2,10 @@
 
 import React from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { RequestResultsPage } from "./main";
+import { RequestDetailPage, RequestResultsPage, SettingsPage, usePolling } from "./main";
 
 function jsonResponse(payload) {
   return {
@@ -81,6 +81,44 @@ function renderResultsPage() {
         <Route path="/requests/:requestId/results" element={<RequestResultsPage />} />
       </Routes>
     </MemoryRouter>,
+  );
+}
+
+function renderSettingsPage() {
+  return render(
+    <React.StrictMode>
+      <MemoryRouter initialEntries={["/settings"]}>
+        <Routes>
+          <Route path="/settings" element={<SettingsPage />} />
+        </Routes>
+      </MemoryRouter>
+    </React.StrictMode>,
+  );
+}
+
+function PollingHarness({ target, enabled = false }) {
+  const { data, loading, error } = usePolling(() => Promise.resolve({ item: { label: target } }), enabled, target);
+
+  if (loading && !data) {
+    return <p>Loading {target}</p>;
+  }
+  if (error) {
+    return <p>{error.message}</p>;
+  }
+  return <p>{data?.item?.label}</p>;
+}
+
+function RequestDetailPageTestShell() {
+  const navigate = useNavigate();
+  return (
+    <>
+      <button type="button" onClick={() => navigate("/requests/req-2")}>
+        Open request 2
+      </button>
+      <Routes>
+        <Route path="/requests/:requestId" element={<RequestDetailPage />} />
+      </Routes>
+    </>
   );
 }
 
@@ -342,5 +380,113 @@ describe("RequestResultsPage geolocation bootstrap", () => {
     expect(await screen.findByText("Location blocked in browser permissions")).toBeTruthy();
     expect(await screen.findByText("Location blocked")).toBeTruthy();
     expect(getCurrentPosition).not.toHaveBeenCalled();
+  });
+});
+
+describe("SettingsPage polling regression", () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("does not re-fetch /api/settings in a tight loop when polling is disabled", async () => {
+    const fetchMock = vi.fn(async (path) => {
+      if (path === "/api/settings") {
+        return jsonResponse({
+          item: {
+            openaiApiKeyConfigured: false,
+            openaiApiKeySource: null,
+            openaiApiKeyMasked: null,
+            openaiApiKeyStored: false,
+          },
+        });
+      }
+      throw new Error(`Unhandled fetch path: ${path}`);
+    });
+    global.fetch = fetchMock;
+
+    renderSettingsPage();
+
+    expect(await screen.findByText("Configured")).toBeTruthy();
+
+    const initialSettingsCalls = fetchMock.mock.calls.filter(([path]) => path === "/api/settings").length;
+    expect(initialSettingsCalls).toBeLessThanOrEqual(2);
+
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, 100);
+    });
+
+    const finalSettingsCalls = fetchMock.mock.calls.filter(([path]) => path === "/api/settings").length;
+    expect(finalSettingsCalls).toBe(initialSettingsCalls);
+  });
+
+  it("re-fetches immediately when the reload key changes while polling is disabled", async () => {
+    const { rerender } = render(<PollingHarness target="alpha" enabled={false} />);
+
+    expect(await screen.findByText("alpha")).toBeTruthy();
+
+    rerender(<PollingHarness target="beta" enabled={false} />);
+
+    expect(await screen.findByText("beta")).toBeTruthy();
+  });
+});
+
+describe("RequestDetailPage polling", () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("re-fetches request data immediately when the route param changes", async () => {
+    const fetchMock = vi.fn(async (path) => {
+      if (path === "/api/requests/req-1") {
+        return jsonResponse({
+          item: {
+            id: "req-1",
+            sourceUrl: "https://example.invalid/req-1",
+            status: "ready",
+            pagesCompleted: 1,
+            resultsWritten: 10,
+            resultsReady: true,
+            excelReady: false,
+            progressMessage: "Request one ready",
+            error: null,
+          },
+        });
+      }
+      if (path === "/api/requests/req-2") {
+        return jsonResponse({
+          item: {
+            id: "req-2",
+            sourceUrl: "https://example.invalid/req-2",
+            status: "ready",
+            pagesCompleted: 2,
+            resultsWritten: 20,
+            resultsReady: true,
+            excelReady: true,
+            progressMessage: "Request two ready",
+            error: null,
+          },
+        });
+      }
+      throw new Error(`Unhandled fetch path: ${path}`);
+    });
+    global.fetch = fetchMock;
+
+    render(
+      <MemoryRouter initialEntries={["/requests/req-1"]}>
+        <RequestDetailPageTestShell />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Request req-1")).toBeTruthy();
+    expect(await screen.findByText("Request one ready")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open request 2" }));
+
+    expect(await screen.findByText("Request req-2")).toBeTruthy();
+    expect(await screen.findByText("Request two ready")).toBeTruthy();
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/requests/req-2", expect.any(Object));
   });
 });
