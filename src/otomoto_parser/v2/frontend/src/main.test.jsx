@@ -243,6 +243,56 @@ describe("RequestResultsPage geolocation bootstrap", () => {
     expect(await screen.findAllByText("Enable location")).toHaveLength(2);
   });
 
+  it("renders geolocation as unavailable in an insecure browser context", async () => {
+    const getCurrentPosition = vi.fn();
+    Object.defineProperty(window, "isSecureContext", {
+      configurable: true,
+      value: false,
+    });
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: { getCurrentPosition },
+    });
+    Object.defineProperty(navigator, "permissions", {
+      configurable: true,
+      value: {
+        query: vi.fn(async () => ({ state: "prompt", onchange: null })),
+      },
+    });
+
+    renderResultsPage();
+
+    const locationButton = await screen.findByRole("button", { name: "Location requires HTTPS" });
+    expect(locationButton).toHaveProperty("disabled", true);
+    expect(await screen.findByText("Location is unavailable in this browser context")).toBeTruthy();
+    expect(await screen.findByText("Location unavailable")).toBeTruthy();
+    fireEvent.click(locationButton);
+    expect(getCurrentPosition).not.toHaveBeenCalled();
+    expect(navigator.permissions.query).not.toHaveBeenCalled();
+  });
+
+  it("renders geolocation as unsupported when navigator.geolocation is unavailable", async () => {
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: undefined,
+    });
+    Object.defineProperty(navigator, "permissions", {
+      configurable: true,
+      value: {
+        query: vi.fn(async () => ({ state: "prompt", onchange: null })),
+      },
+    });
+
+    renderResultsPage();
+
+    const locationButton = await screen.findByRole("button", { name: "Location unsupported" });
+    expect(locationButton).toHaveProperty("disabled", true);
+    expect(await screen.findByText("Location is not supported in this browser")).toBeTruthy();
+    expect(await screen.findByText("Location unavailable")).toBeTruthy();
+    fireEvent.click(locationButton);
+    expect(navigator.permissions.query).not.toHaveBeenCalled();
+  });
+
   it("preserves ready state across results refreshes when the Permissions API is unavailable", async () => {
     const getCurrentPosition = vi.fn((success) => {
       success({ coords: { latitude: 52.23, longitude: 21.01 } });
@@ -311,6 +361,42 @@ describe("RequestResultsPage geolocation bootstrap", () => {
     });
     expect(await screen.findByText("Location blocked in browser permissions")).toBeTruthy();
     expect(await screen.findByText("Location blocked")).toBeTruthy();
+  });
+
+  it("keeps transient geolocation failures retryable in supported browsers", async () => {
+    const getCurrentPosition = vi.fn((success, error) => {
+      error({ code: 3 });
+    });
+    const query = vi.fn(async () => ({ state: "prompt", onchange: null }));
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: { getCurrentPosition },
+    });
+    Object.defineProperty(navigator, "permissions", {
+      configurable: true,
+      value: { query },
+    });
+
+    renderResultsPage();
+
+    const locationButton = await screen.findByRole("button", { name: "Enable location" });
+    fireEvent.click(locationButton);
+
+    await waitFor(() => {
+      expect(getCurrentPosition).toHaveBeenCalledTimes(1);
+    });
+
+    const retryButton = await screen.findByRole("button", { name: "Retry location" });
+    expect(retryButton).toHaveProperty("disabled", false);
+    expect(await screen.findByText("Location request failed. Try again.")).toBeTruthy();
+    expect(await screen.findAllByText("Retry location")).toHaveLength(2);
+
+    fireEvent.click(retryButton);
+
+    await waitFor(() => {
+      expect(getCurrentPosition).toHaveBeenCalledTimes(2);
+    });
+    expect(query.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
   it("updates the UI when PermissionStatus.onchange fires after initial render", async () => {
