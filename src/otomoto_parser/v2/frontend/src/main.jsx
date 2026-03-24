@@ -88,6 +88,10 @@ function formatValue(value) {
   return String(value);
 }
 
+function normalizeLookupText(value) {
+  return String(value || "").toUpperCase().replace(/\s+/g, "");
+}
+
 function buildVehicleReportMeta(data, fallbackError = null) {
   const status = data?.report ? "success" : data?.status || (fallbackError ? "failed" : null);
   return {
@@ -955,11 +959,12 @@ function DataTree({ label, value }) {
   );
 }
 
-function VehicleReportModal({ state, onClose, onRegenerate, onLookup }) {
+function VehicleReportModal({ state, onClose, onRegenerate, onLookup, onCancelLookup }) {
   const item = state?.item || {};
   const loading = state?.loading || false;
   const regenerating = state?.regenerating || false;
   const submittingLookup = state?.submittingLookup || false;
+  const cancellingLookup = state?.cancellingLookup || false;
   const error = state?.error || null;
   const data = state?.data || null;
   const identity = data?.identity || {};
@@ -975,6 +980,8 @@ function VehicleReportModal({ state, onClose, onRegenerate, onLookup }) {
   const showLookupForm = data && !data.report && (
     data.status === "needs_input"
     || data.status === "running"
+    || data.status === "cancelling"
+    || data.status === "cancelled"
     || (data.status === "failed" && hasRetryLookupContext)
   );
 
@@ -985,7 +992,7 @@ function VehicleReportModal({ state, onClose, onRegenerate, onLookup }) {
       setDateTo("");
       return;
     }
-    setRegistrationNumber(activeLookup.registrationNumber || lookupOptions.registrationNumber || identity.registrationNumber || "");
+    setRegistrationNumber(normalizeLookupText(activeLookup.registrationNumber || lookupOptions.registrationNumber || identity.registrationNumber || ""));
     setDateFrom(lookupOptions.dateRange?.from || activeLookup.dateRange?.from || "");
     setDateTo(lookupOptions.dateRange?.to || activeLookup.dateRange?.to || "");
   }, [
@@ -1038,7 +1045,7 @@ function VehicleReportModal({ state, onClose, onRegenerate, onLookup }) {
               title="Regenerate report"
               tone="secondary"
               onClick={onRegenerate}
-              disabled={loading || regenerating || submittingLookup || data?.status === "running"}
+              disabled={loading || regenerating || submittingLookup || cancellingLookup || data?.status === "running" || data?.status === "cancelling"}
             >
               <IconRefresh />
             </IconButton>
@@ -1056,6 +1063,10 @@ function VehicleReportModal({ state, onClose, onRegenerate, onLookup }) {
                 ? "Cached report ready"
                 : data?.status === "running"
                   ? "Searching"
+                  : data?.status === "cancelling"
+                    ? "Cancelling"
+                  : data?.status === "cancelled"
+                    ? "Cancelled"
                   : data?.status === "needs_input"
                     ? "Needs input"
                     : loading
@@ -1071,7 +1082,10 @@ function VehicleReportModal({ state, onClose, onRegenerate, onLookup }) {
 
         {loading ? <p className="progress-box">Fetching listing identity and vehicle history sources...</p> : null}
         {regenerating ? <p className="progress-box">Refreshing cached report...</p> : null}
-        {!loading && data?.status === "running" ? <p className="progress-box">{data.progressMessage || "Searching vehicle history report..."}</p> : null}
+        {cancellingLookup ? <p className="progress-box">Cancelling lookup...</p> : null}
+        {!loading && (data?.status === "running" || data?.status === "cancelling") ? (
+          <p className="progress-box">{data.progressMessage || (data?.status === "cancelling" ? "Cancelling vehicle history report lookup..." : "Searching vehicle history report...")}</p>
+        ) : null}
         {error ? <p className="error-text">{error}</p> : null}
         {!error && data?.error ? <p className="error-text">{data.error}</p> : null}
 
@@ -1088,7 +1102,7 @@ function VehicleReportModal({ state, onClose, onRegenerate, onLookup }) {
                 <input
                   type="text"
                   value={registrationNumber}
-                  onChange={(event) => setRegistrationNumber(event.target.value.toUpperCase())}
+                  onChange={(event) => setRegistrationNumber(normalizeLookupText(event.target.value))}
                   placeholder="Enter registration"
                 />
               </label>
@@ -1104,11 +1118,21 @@ function VehicleReportModal({ state, onClose, onRegenerate, onLookup }) {
             <div className="report-form-actions">
               <button
                 type="button"
-                onClick={() => onLookup({ registrationNumber, dateFrom, dateTo })}
-                disabled={loading || regenerating || submittingLookup || data?.status === "running"}
+                onClick={() => onLookup({ registrationNumber: normalizeLookupText(registrationNumber), dateFrom, dateTo })}
+                disabled={loading || regenerating || submittingLookup || cancellingLookup || data?.status === "running" || data?.status === "cancelling"}
               >
-                {submittingLookup ? "Starting lookup..." : data?.status === "running" ? "Lookup in progress" : "Search date range"}
+                {submittingLookup ? "Starting lookup..." : (data?.status === "running" || data?.status === "cancelling") ? "Lookup in progress" : "Search date range"}
               </button>
+              {data?.status === "running" || data?.status === "cancelling" ? (
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={onCancelLookup}
+                  disabled={loading || regenerating || submittingLookup || cancellingLookup || data?.status === "cancelling"}
+                >
+                  {cancellingLookup || data?.status === "cancelling" ? "Cancelling..." : "Cancel lookup"}
+                </button>
+              ) : null}
             </div>
           </section>
         ) : null}
@@ -1440,19 +1464,19 @@ function RequestResultsPage() {
   const openVehicleReport = React.useCallback(async (item) => {
     const requestToken = vehicleReportRequestRef.current + 1;
     vehicleReportRequestRef.current = requestToken;
-    setVehicleReportState({ item, loading: true, regenerating: false, submittingLookup: false, error: null, data: null });
+    setVehicleReportState({ item, loading: true, regenerating: false, submittingLookup: false, cancellingLookup: false, error: null, data: null });
     try {
       const payload = await api(`/api/requests/${requestId}/listings/${item.id}/vehicle-report`);
       if (vehicleReportRequestRef.current !== requestToken) {
         return;
       }
-      setVehicleReportState({ item, loading: false, regenerating: false, submittingLookup: false, error: null, data: payload.item });
+      setVehicleReportState({ item, loading: false, regenerating: false, submittingLookup: false, cancellingLookup: false, error: null, data: payload.item });
       updateVehicleReportResultItem(item.id, payload.item);
     } catch (error) {
       if (vehicleReportRequestRef.current !== requestToken) {
         return;
       }
-      setVehicleReportState({ item, loading: false, regenerating: false, submittingLookup: false, error: error.message, data: null });
+      setVehicleReportState({ item, loading: false, regenerating: false, submittingLookup: false, cancellingLookup: false, error: error.message, data: null });
       updateVehicleReportResultItem(item.id, null, error.message);
     }
   }, [requestId, updateVehicleReportResultItem]);
@@ -1470,7 +1494,7 @@ function RequestResultsPage() {
       if (vehicleReportRequestRef.current !== requestToken) {
         return;
       }
-      setVehicleReportState({ item, loading: false, regenerating: false, submittingLookup: false, error: null, data: payload.item });
+      setVehicleReportState({ item, loading: false, regenerating: false, submittingLookup: false, cancellingLookup: false, error: null, data: payload.item });
       updateVehicleReportResultItem(item.id, payload.item);
     } catch (error) {
       if (vehicleReportRequestRef.current !== requestToken) {
@@ -1488,7 +1512,7 @@ function RequestResultsPage() {
     const item = vehicleReportState.item;
     const requestToken = vehicleReportRequestRef.current + 1;
     vehicleReportRequestRef.current = requestToken;
-    setVehicleReportState((current) => ({ ...current, submittingLookup: true, error: null }));
+    setVehicleReportState((current) => ({ ...current, submittingLookup: true, cancellingLookup: false, error: null }));
     try {
       const payload = await api(`/api/requests/${requestId}/listings/${item.id}/vehicle-report/lookup`, {
         method: "POST",
@@ -1501,7 +1525,7 @@ function RequestResultsPage() {
       if (vehicleReportRequestRef.current !== requestToken) {
         return;
       }
-      setVehicleReportState({ item, loading: false, regenerating: false, submittingLookup: false, error: null, data: payload.item });
+      setVehicleReportState({ item, loading: false, regenerating: false, submittingLookup: false, cancellingLookup: false, error: null, data: payload.item });
       updateVehicleReportResultItem(item.id, payload.item);
     } catch (error) {
       if (vehicleReportRequestRef.current !== requestToken) {
@@ -1511,11 +1535,42 @@ function RequestResultsPage() {
     }
   }, [requestId, updateVehicleReportResultItem, vehicleReportState]);
 
+  const cancelVehicleReportLookup = React.useCallback(async () => {
+    if (!vehicleReportState?.item) {
+      return;
+    }
+    const item = vehicleReportState.item;
+    const requestToken = vehicleReportRequestRef.current + 1;
+    vehicleReportRequestRef.current = requestToken;
+    setVehicleReportState((current) => ({ ...current, cancellingLookup: true, error: null }));
+    try {
+      const payload = await api(`/api/requests/${requestId}/listings/${item.id}/vehicle-report/lookup/cancel`, {
+        method: "POST",
+      });
+      if (vehicleReportRequestRef.current !== requestToken) {
+        return;
+      }
+      setVehicleReportState({ item, loading: false, regenerating: false, submittingLookup: false, cancellingLookup: false, error: null, data: payload.item });
+      updateVehicleReportResultItem(item.id, payload.item);
+    } catch (error) {
+      if (vehicleReportRequestRef.current !== requestToken) {
+        return;
+      }
+      setVehicleReportState((current) => ({ ...current, cancellingLookup: false, error: error.message }));
+    }
+  }, [requestId, updateVehicleReportResultItem, vehicleReportState]);
+
   React.useEffect(() => {
-    if (!vehicleReportState?.item || vehicleReportState.loading || vehicleReportState.regenerating || vehicleReportState.submittingLookup) {
+    if (
+      !vehicleReportState?.item
+      || vehicleReportState.loading
+      || vehicleReportState.regenerating
+      || vehicleReportState.submittingLookup
+      || vehicleReportState.cancellingLookup
+    ) {
       return undefined;
     }
-    if (vehicleReportState.data?.status !== "running") {
+    if (!["running", "cancelling"].includes(vehicleReportState.data?.status)) {
       return undefined;
     }
     let active = true;
@@ -1529,7 +1584,7 @@ function RequestResultsPage() {
           if (!current || current.item.id !== vehicleReportState.item.id) {
             return current;
           }
-          return { ...current, error: null, data: payload.item };
+          return { ...current, error: null, cancellingLookup: false, data: payload.item };
         });
         updateVehicleReportResultItem(vehicleReportState.item.id, payload.item);
       } catch (error) {
@@ -1862,6 +1917,7 @@ function RequestResultsPage() {
         }}
         onRegenerate={regenerateVehicleReport}
         onLookup={submitVehicleReportLookup}
+        onCancelLookup={cancelVehicleReportLookup}
       />
     </Shell>
   );

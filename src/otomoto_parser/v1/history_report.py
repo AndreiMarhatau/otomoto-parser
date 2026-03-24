@@ -4,6 +4,8 @@ import argparse
 import http.client
 import json
 import logging
+import re
+import threading
 import time
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
@@ -29,6 +31,7 @@ DEFAULT_BACKOFF_BASE_S = 1.0
 INIT_URL = "https://moj.gov.pl/nforms/engine/ng/index?xFormsAppName=HistoriaPojazdu#/search"
 API_VERSION_PATTERN = '/nforms/api/HistoriaPojazdu/'
 DATA_ENDPOINTS = ("vehicle-data", "autodna-data", "carfax-data", "timeline-data")
+API_VERSION_REGEX = re.compile(r"/nforms/api/HistoriaPojazdu/([^/\"'?]+)(?:/resource|[/?\"'])")
 
 
 class OpenerLike(Protocol):
@@ -47,17 +50,28 @@ class VehicleHistoryReport:
     timeline_data: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class VehicleHistoryBootstrap:
+    nf_wid: str
+    api_version: str
+    xsrf_token: str
+
+
+class CancellationRequested(RuntimeError):
+    pass
+
+
 def _normalize_first_registration_date(value: str | date | datetime) -> str:
     if isinstance(value, datetime):
         return value.date().isoformat()
     if isinstance(value, date):
         return value.isoformat()
-    for pattern in ("%Y-%m-%d", "%d.%m.%Y"):
-        try:
-            return datetime.strptime(value, pattern).date().isoformat()
-        except ValueError:
-            continue
-    raise ValueError("Unsupported first registration date format. Use YYYY-MM-DD or DD.MM.YYYY.")
+    if not isinstance(value, str):
+        raise ValueError("Unsupported first registration date format. Use YYYY-MM-DD.")
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date().isoformat()
+    except ValueError as exc:
+        raise ValueError("Unsupported first registration date format. Use YYYY-MM-DD.") from exc
 
 
 def _normalize_registration_number(value: str) -> str:
@@ -67,15 +81,29 @@ def _normalize_registration_number(value: str) -> str:
     return normalized
 
 
+def _normalize_vin_number(value: str) -> str:
+    normalized = "".join(value.upper().split())
+    if not normalized:
+        raise ValueError("VIN number cannot be empty.")
+    return normalized
+
+
 def _extract_api_version(html: str) -> str:
+    match = API_VERSION_REGEX.search(html)
+    if match is not None:
+        return match.group(1)
     marker_index = html.find(API_VERSION_PATTERN)
     if marker_index == -1:
         raise RuntimeError("Could not determine HistoriaPojazdu API version from bootstrap HTML.")
     start = marker_index + len(API_VERSION_PATTERN)
-    end = html.find("/resource", start)
-    if end == -1:
+    end_candidates = [
+        candidate
+        for candidate in (html.find("/resource", start), html.find("?", start), html.find('"', start), html.find("'", start))
+        if candidate != -1
+    ]
+    if not end_candidates:
         raise RuntimeError("Could not determine HistoriaPojazdu API version from bootstrap HTML.")
-    return html[start:end]
+    return html[start : min(end_candidates)]
 
 
 def _raise_for_status(error: HTTPError) -> None:
@@ -101,10 +129,17 @@ def _with_retry(
     attempts: int,
     base_delay: float,
     label: str,
+    should_abort=None,
 ) -> Any:
     total_attempts = max(0, attempts) + 1
     last_error: Exception | None = None
+
+    def abort_if_requested() -> None:
+        if should_abort is not None and should_abort():
+            raise CancellationRequested(f"{label} cancelled.")
+
     for attempt in range(total_attempts):
+        abort_if_requested()
         try:
             return action()
         except HTTPError as exc:
@@ -125,7 +160,12 @@ def _with_retry(
             total_attempts - 1,
             delay,
         )
-        time.sleep(delay)
+        slept = 0.0
+        while slept < delay:
+            abort_if_requested()
+            remaining = min(0.1, delay - slept)
+            time.sleep(remaining)
+            slept += remaining
     if last_error:
         raise last_error
     raise RuntimeError(f"{label} failed without raising an exception")
@@ -142,6 +182,7 @@ class VehicleHistoryClient:
         timeout_s: float = DEFAULT_TIMEOUT_S,
         retry_attempts: int = DEFAULT_RETRY_ATTEMPTS,
         backoff_base_s: float = DEFAULT_BACKOFF_BASE_S,
+        cancel_event: threading.Event | None = None,
     ) -> None:
         discovered_cookie_jar = cookie_jar
         if discovered_cookie_jar is None and opener is not None:
@@ -167,6 +208,22 @@ class VehicleHistoryClient:
         self.timeout_s = timeout_s
         self.retry_attempts = retry_attempts
         self.backoff_base_s = backoff_base_s
+        self.cancel_event = cancel_event
+        self._bootstrap_context: VehicleHistoryBootstrap | None = None
+
+    def bootstrap_session(self, *, force: bool = False) -> VehicleHistoryBootstrap:
+        if self._bootstrap_context is not None and not force:
+            return self._bootstrap_context
+        self._raise_if_cancelled()
+        nf_wid = f"HistoriaPojazdu:{int(time.time() * 1000)}"
+        api_version = self._bootstrap_session(nf_wid)
+        context = VehicleHistoryBootstrap(
+            nf_wid=nf_wid,
+            api_version=api_version,
+            xsrf_token=self._cookie_value("XSRF-TOKEN"),
+        )
+        self._bootstrap_context = context
+        return context
 
     def fetch_report(
         self,
@@ -176,23 +233,24 @@ class VehicleHistoryClient:
     ) -> VehicleHistoryReport:
         normalized_date = _normalize_first_registration_date(first_registration_date)
         normalized_registration_number = _normalize_registration_number(registration_number)
-        nf_wid = f"HistoriaPojazdu:{int(time.time() * 1000)}"
-        api_version = self._bootstrap_session(nf_wid)
-        xsrf_token = self._cookie_value("XSRF-TOKEN")
+        normalized_vin_number = _normalize_vin_number(vin_number)
+        self._raise_if_cancelled()
+        bootstrap = self.bootstrap_session()
         payload = {
             "registrationNumber": normalized_registration_number,
-            "VINNumber": vin_number,
+            "VINNumber": normalized_vin_number,
             "firstRegistrationDate": normalized_date,
         }
 
         responses: dict[str, dict[str, Any]] = {}
         for endpoint in DATA_ENDPOINTS:
+            self._raise_if_cancelled()
             try:
                 responses[endpoint] = self._post_data(
-                    api_version=api_version,
+                    api_version=bootstrap.api_version,
                     endpoint=endpoint,
-                    nf_wid=nf_wid,
-                    xsrf_token=xsrf_token,
+                    nf_wid=bootstrap.nf_wid,
+                    xsrf_token=bootstrap.xsrf_token,
                     payload=payload,
                 )
             except HTTPError as exc:
@@ -210,9 +268,9 @@ class VehicleHistoryClient:
 
         return VehicleHistoryReport(
             registration_number=normalized_registration_number,
-            vin_number=vin_number,
+            vin_number=normalized_vin_number,
             first_registration_date=normalized_date,
-            api_version=api_version,
+            api_version=bootstrap.api_version,
             technical_data=responses["vehicle-data"],
             autodna_data=responses["autodna-data"],
             carfax_data=responses["carfax-data"],
@@ -220,6 +278,7 @@ class VehicleHistoryClient:
         )
 
     def _bootstrap_session(self, nf_wid: str) -> str:
+        label = "HistoriaPojazdu bootstrap app"
         request = Request(
             INIT_URL,
             data=urlencode({"NF_WID": nf_wid}).encode("utf-8"),
@@ -229,21 +288,32 @@ class VehicleHistoryClient:
                 "Accept-Language": self.accept_language,
                 "Content-Type": "application/x-www-form-urlencoded",
                 "Origin": "null",
+                "Referer": INIT_URL,
                 "User-Agent": self.user_agent,
             },
         )
 
         def action() -> str:
+            self._raise_if_cancelled()
             with self.opener.open(request, timeout=self.timeout_s) as response:
                 return response.read().decode("utf-8")
 
-        html = _with_retry(
-            action,
-            attempts=self.retry_attempts,
-            base_delay=self.backoff_base_s,
-            label="HistoriaPojazdu bootstrap",
-        )
-        return _extract_api_version(html)
+        try:
+            html = _with_retry(
+                action,
+                attempts=self.retry_attempts,
+                base_delay=self.backoff_base_s,
+                label=label,
+                should_abort=self._is_cancelled,
+            )
+        except CancellationRequested:
+            raise
+        except (HTTPError, URLError, TimeoutError, ConnectionResetError, http.client.RemoteDisconnected) as exc:
+            raise RuntimeError(f"{label} failed: {exc}") from exc
+        api_version = _extract_api_version(html)
+        if not self._has_cookie("XSRF-TOKEN"):
+            raise RuntimeError(f"{label} did not establish the required HistoriaPojazdu session cookies.")
+        return api_version
 
     def _post_data(
         self,
@@ -270,6 +340,7 @@ class VehicleHistoryClient:
         )
 
         def action() -> dict[str, Any]:
+            self._raise_if_cancelled()
             with self.opener.open(request, timeout=self.timeout_s) as response:
                 return json.loads(response.read().decode("utf-8"))
 
@@ -278,6 +349,7 @@ class VehicleHistoryClient:
             attempts=self.retry_attempts,
             base_delay=self.backoff_base_s,
             label=f"HistoriaPojazdu {endpoint}",
+            should_abort=self._is_cancelled,
         )
 
     def _cookie_value(self, name: str) -> str:
@@ -285,6 +357,19 @@ class VehicleHistoryClient:
             if cookie.name == name:
                 return cookie.value
         raise RuntimeError(f"Missing required cookie: {name}")
+
+    def _has_cookie(self, name: str) -> bool:
+        for cookie in self.cookie_jar:
+            if cookie.name == name and cookie.value:
+                return True
+        return False
+
+    def _is_cancelled(self) -> bool:
+        return self.cancel_event.is_set() if self.cancel_event is not None else False
+
+    def _raise_if_cancelled(self) -> None:
+        if self._is_cancelled():
+            raise CancellationRequested("HistoriaPojazdu request cancelled.")
 
 
 def fetch_vehicle_history(
@@ -312,7 +397,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Fetch Historia Pojazdu reports.")
     parser.add_argument("registration_number", help="Vehicle registration number")
     parser.add_argument("vin_number", help="VIN number")
-    parser.add_argument("first_registration_date", help="First registration date: YYYY-MM-DD or DD.MM.YYYY")
+    parser.add_argument("first_registration_date", help="First registration date: YYYY-MM-DD")
     parser.add_argument("--timeout-s", type=float, default=DEFAULT_TIMEOUT_S, help="HTTP timeout in seconds")
     parser.add_argument("--retries", type=int, default=DEFAULT_RETRY_ATTEMPTS, help="Retry attempts for 5xx/network failures")
     parser.add_argument("--backoff", type=float, default=DEFAULT_BACKOFF_BASE_S, help="Exponential backoff base delay in seconds")
