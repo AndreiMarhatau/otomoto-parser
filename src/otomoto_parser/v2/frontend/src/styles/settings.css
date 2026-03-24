@@ -1,0 +1,101 @@
+.settings-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.settings-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+.chip-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  opacity: 0.72;
+}
+
+.chip-price {
+  background: #f8dcbf;
+  color: #6f3c00;
+}
+
+.chip-verified {
+  background: #d8efdf;
+  color: #1f6a42;
+}
+
+.chip-engine {
+  background: #dbe9f8;
+  color: #1f4e7a;
+}
+
+.chip-year {
+  background: #efe0ff;
+  color: #5c2e91;
+}
+
+.chip-mileage {
+  background: #d7f2e5;
+  color: #156149;
+}
+
+.chip-drive {
+  background: #fbe6cf;
+  color: #7a4c14;
+}
+
+.chip-place {
+  background: #e8e4dc;
+  color: #4e453a;
+}
+
+.chip-time {
+  background: #e6dde8;
+  color: #5d465f;
+}
+
+@media (max-width: 920px) {
+  .panel-grid,
+  .listing-card-body {
+    grid-template-columns: 1fr;
+  }
+
+  .modal-head {
+    flex-direction: column;
+  }
+
+  .map-frame {
+    min-height: 320px;
+  }
+
+  .listing-topline {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .listing-report-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .listing-category-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .results-controls {
+    justify-content: flex-start;
+  }
+
+  .results-footer {
+    justify-content: flex-start;
+  }
+
+  .tab-row-actions {
+    width: 100%;
+    margin-left: 0;
+  }
+}

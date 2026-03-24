@@ -1,0 +1,103 @@
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(24, 18, 12, 0.44);
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  z-index: 30;
+}
+
+.modal-panel {
+  width: min(900px, 100%);
+  max-height: 88vh;
+  overflow: auto;
+  background: #fffaf2;
+  border-radius: 28px;
+  padding: 1.25rem;
+  border: 1px solid #e6dac6;
+  box-shadow: 0 24px 48px rgba(48, 36, 21, 0.24);
+}
+
+.modal-panel-report {
+  width: min(1040px, 100%);
+}
+
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 1rem;
+}
+
+.modal-head h2 {
+  margin: 0.25rem 0 0;
+}
+
+.modal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.map-frame {
+  width: 100%;
+  height: min(46vh, 420px);
+  min-height: 280px;
+  border: 0;
+  border-radius: 22px;
+  background: #ece3d6;
+}
+
+.modal-footnote {
+  margin-bottom: 0;
+}
+
+.report-layout {
+  display: grid;
+  gap: 1rem;
+}
+
+.report-section,
+.report-details {
+  background: #f8f3eb;
+  border: 1px solid #eadfcf;
+  border-radius: 22px;
+  padding: 1rem;
+}
+
+.report-section h3 {
+  margin: 0 0 0.9rem;
+}
+
+.analysis-section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: start;
+}
+
+.analysis-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.warning-box {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.9rem 1rem;
+  border-radius: 18px;
+  background: #fff0cc;
+  border: 1px solid #f2d58e;
+  color: #7a5308;
+  margin-bottom: 1rem;
+}
+
+.warning-box svg {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: 0 0 auto;
+}

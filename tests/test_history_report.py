@@ -9,8 +9,13 @@ from urllib.error import HTTPError
 import pytest
 
 from otomoto_parser.v1.history_report import (
+    RetrySettings,
     VehicleHistoryClient,
+    VehicleHistoryReport,
+    VehicleHistoryRequestOptions,
     build_arg_parser,
+    fetch_vehicle_history,
+    main,
     _normalize_first_registration_date,
     _normalize_registration_number,
     _normalize_vin_number,
@@ -81,6 +86,63 @@ def test_cli_help_advertises_only_iso_date_format() -> None:
     help_text = parser.format_help()
     assert "YYYY-MM-DD" in help_text
     assert "DD.MM.YYYY" not in help_text
+
+
+def test_fetch_vehicle_history_uses_request_options(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured = {}
+
+    class FakeClient:
+        def __init__(self, config) -> None:
+            captured["config"] = config
+
+        def fetch_report(self, registration_number: str, vin_number: str, first_registration_date: str):
+            captured["args"] = (registration_number, vin_number, first_registration_date)
+            return "report"
+
+    monkeypatch.setattr("otomoto_parser.v1.history_report.VehicleHistoryClient", FakeClient)
+
+    result = fetch_vehicle_history(
+        "DX04419",
+        "VF36D6FZM21283134",
+        "2005-01-01",
+        options=VehicleHistoryRequestOptions(timeout_s=12.0, retry_attempts=2, backoff_base_s=0.25),
+    )
+
+    assert result == "report"
+    assert captured["config"].timeout_s == 12.0
+    assert captured["config"].retry_attempts == 2
+    assert captured["config"].backoff_base_s == 0.25
+    assert captured["args"] == ("DX04419", "VF36D6FZM21283134", "2005-01-01")
+
+
+def test_fetch_vehicle_history_rejects_mixed_options_and_legacy_kwargs() -> None:
+    with pytest.raises(TypeError, match="either options or legacy keyword arguments"):
+        fetch_vehicle_history(
+            "DX04419",
+            "VF36D6FZM21283134",
+            "2005-01-01",
+            options=VehicleHistoryRequestOptions(),
+            timeout_s=10.0,
+        )
+
+
+def test_history_report_main_prints_json(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    report = VehicleHistoryReport(
+        registration_number="WA12345",
+        vin_number="VIN12345678901234",
+        first_registration_date="2024-01-02",
+        api_version="v1",
+        technical_data={"ok": True},
+        autodna_data={},
+        carfax_data={},
+        timeline_data={},
+    )
+    monkeypatch.setattr("otomoto_parser.v1.history_report.fetch_vehicle_history", lambda *args, **kwargs: report)
+
+    result = main(["WA12345", "VIN12345678901234", "2024-01-02"])
+
+    assert result == 0
+    assert '"registration_number": "WA12345"' in capsys.readouterr().out
 
 
 def test_fetch_report_bootstraps_session_and_reuses_nf_wid() -> None:
@@ -304,7 +366,7 @@ def test_custom_opener_cookie_jar_is_discovered_and_zero_retries_still_runs() ->
         calls["count"] += 1
         return "ok"
 
-    assert _with_retry(action, attempts=0, base_delay=0.0, label="test") == "ok"
+    assert _with_retry(action, RetrySettings(attempts=0, base_delay=0.0, label="test")) == "ok"
     assert calls["count"] == 1
 
 
@@ -317,7 +379,7 @@ def test_with_retry_handles_connection_level_failures() -> None:
             raise http.client.RemoteDisconnected("boom")
         return "ok"
 
-    assert _with_retry(action, attempts=1, base_delay=0.0, label="test") == "ok"
+    assert _with_retry(action, RetrySettings(attempts=1, base_delay=0.0, label="test")) == "ok"
     assert calls["count"] == 2
 
 
@@ -338,10 +400,7 @@ def test_with_retry_stops_during_backoff_when_cancellation_is_requested() -> Non
     with pytest.raises(RuntimeError, match="cancelled"):
         _with_retry(
             action,
-            attempts=3,
-            base_delay=0.2,
-            label="test",
-            should_abort=cancel_event.is_set,
+            RetrySettings(attempts=3, base_delay=0.2, label="test", should_abort=cancel_event.is_set),
         )
     worker.join()
     assert calls["count"] == 1

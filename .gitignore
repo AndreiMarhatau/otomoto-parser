@@ -8,6 +8,10 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+coverage/
+coverage.json
+*.core
+core.*
 build/
 dist/
 src/otomoto_parser/v2/frontend/node_modules/

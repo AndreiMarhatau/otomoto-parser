@@ -266,9 +266,7 @@ def test_resolve_canonical_model_filter_value() -> None:
         "https://www.otomoto.pl/osobowe/mercedes-benz/cla-klasa",
         filters,
         {"filter_enum_make", "filter_enum_model"},
-        headers={},
-        timeout_s=1.0,
-        page_request_func=page_request,
+        {"headers": {}, "timeout_s": 1.0, "page_request_func": page_request},
     )
 
     assert fetch_failed is False
@@ -302,9 +300,7 @@ def test_resolve_inferred_location_slug_to_city_id() -> None:
         "https://www.otomoto.pl/osobowe/seg-city-car--seg-compact--seg-sedan--seg-suv/od-2010/wroclaw",
         filters,
         {"filter_enum_make"},
-        headers={},
-        timeout_s=1.0,
-        page_request_func=lambda url, headers, timeout_s: page_html,
+        {"headers": {}, "timeout_s": 1.0, "page_request_func": lambda url, headers, timeout_s: page_html},
     )
 
     assert fetch_failed is False
