@@ -11,6 +11,8 @@ htmlcov/
 build/
 dist/
 src/otomoto_parser/v2/frontend/node_modules/
+!src/otomoto_parser/v2/frontend/dist/
+!src/otomoto_parser/v2/frontend/dist/**
 
 # local outputs
 results.jsonl
