@@ -23,5 +23,5 @@ export function getGeolocationErrorStatus({ errorCode, permissionState }) {
   if (permissionState === "denied" || errorCode === 1) {
     return "denied";
   }
-  return "unavailable";
+  return "error";
 }

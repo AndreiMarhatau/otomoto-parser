@@ -55,6 +55,9 @@ function formatDistanceChip(itemLocation, geolocationState, locationEntry) {
   if (geolocationState.status === "unavailable") {
     return "Location unavailable";
   }
+  if (geolocationState.status === "error") {
+    return "Retry location";
+  }
   if (geolocationState.status === "prompt" || geolocationState.status === "idle") {
     return "Enable location";
   }
@@ -85,9 +88,32 @@ function formatGeolocationStatus(geolocationState) {
     return "Location blocked in browser permissions";
   }
   if (geolocationState.status === "unavailable") {
-    return "Location is unavailable in this browser context";
+    return geolocationState.unavailableReason === "insecure-context"
+      ? "Location is unavailable in this browser context"
+      : "Location is not supported in this browser";
+  }
+  if (geolocationState.status === "error") {
+    return "Location request failed. Try again.";
   }
   return "Enable location to show distances";
+}
+
+function getGeolocationButtonLabel(geolocationState) {
+  if (geolocationState.status === "ready") {
+    return "Refresh location";
+  }
+  if (geolocationState.status === "requesting") {
+    return "Requesting...";
+  }
+  if (geolocationState.status === "error") {
+    return "Retry location";
+  }
+  if (geolocationState.status === "unavailable") {
+    return geolocationState.unavailableReason === "insecure-context"
+      ? "Location requires HTTPS"
+      : "Location unsupported";
+  }
+  return "Enable location";
 }
 
 function formatFieldLabel(key) {
@@ -1544,7 +1570,11 @@ export function RequestResultsPage() {
   const [locationPreview, setLocationPreview] = React.useState(null);
   const [vehicleReportState, setVehicleReportState] = React.useState(null);
   const [redFlagState, setRedFlagState] = React.useState(null);
-  const [geolocationState, setGeolocationState] = React.useState({ status: "idle", coords: null });
+  const [geolocationState, setGeolocationState] = React.useState({
+    status: "idle",
+    coords: null,
+    unavailableReason: null,
+  });
   const [locationCache, setLocationCache] = React.useState({});
   const [reloadToken, setReloadToken] = React.useState(0);
   const [categoryBusyByListing, setCategoryBusyByListing] = React.useState({});
@@ -1554,7 +1584,11 @@ export function RequestResultsPage() {
   const previousPageRef = React.useRef(null);
   const paginationScrollRafRef = React.useRef(null);
   const geolocationRequestInFlightRef = React.useRef(false);
-  const geolocationStateRef = React.useRef({ status: "idle", coords: null });
+  const geolocationStateRef = React.useRef({
+    status: "idle",
+    coords: null,
+    unavailableReason: null,
+  });
   const updateGeolocationState = React.useCallback((nextStateOrUpdater) => {
     setGeolocationState((current) => {
       const nextState =
@@ -1567,8 +1601,12 @@ export function RequestResultsPage() {
   }, []);
 
   const requestCurrentPosition = React.useCallback(() => {
-    if (!navigator.geolocation || !window.isSecureContext) {
-      updateGeolocationState({ status: "unavailable", coords: null });
+    if (!navigator.geolocation) {
+      updateGeolocationState({ status: "unavailable", coords: null, unavailableReason: "unsupported" });
+      return;
+    }
+    if (!window.isSecureContext) {
+      updateGeolocationState({ status: "unavailable", coords: null, unavailableReason: "insecure-context" });
       return;
     }
     if (geolocationRequestInFlightRef.current) {
@@ -1579,6 +1617,7 @@ export function RequestResultsPage() {
     updateGeolocationState((current) => ({
       status: "requesting",
       coords: current.status === "ready" ? current.coords : null,
+      unavailableReason: null,
     }));
     navigator.geolocation.getCurrentPosition(
       (position) => {
@@ -1589,6 +1628,7 @@ export function RequestResultsPage() {
             lat: position.coords.latitude,
             lon: position.coords.longitude,
           },
+          unavailableReason: null,
         });
       },
       (error) => {
@@ -1598,6 +1638,7 @@ export function RequestResultsPage() {
           updateGeolocationState({
             status: getGeolocationErrorStatus({ errorCode: error?.code }),
             coords: null,
+            unavailableReason: null,
           });
           return;
         }
@@ -1607,12 +1648,14 @@ export function RequestResultsPage() {
             updateGeolocationState({
               status: getGeolocationErrorStatus({ errorCode: error?.code, permissionState: permission.state }),
               coords: null,
+              unavailableReason: null,
             });
           })
           .catch(() => {
             updateGeolocationState({
               status: getGeolocationErrorStatus({ errorCode: error?.code }),
               coords: null,
+              unavailableReason: null,
             });
           });
       },
@@ -2124,19 +2167,24 @@ export function RequestResultsPage() {
     const hasGeolocation = Boolean(navigator.geolocation);
     const isSecureContext = window.isSecureContext;
     const hasPermissionsApi = typeof navigator.permissions?.query === "function";
-    if (!hasGeolocation || !isSecureContext) {
-      updateGeolocationState({ status: "unavailable", coords: null });
+    if (!hasGeolocation) {
+      updateGeolocationState({ status: "unavailable", coords: null, unavailableReason: "unsupported" });
+      return;
+    }
+    if (!isSecureContext) {
+      updateGeolocationState({ status: "unavailable", coords: null, unavailableReason: "insecure-context" });
       return;
     }
     if (!hasPermissionsApi) {
-      const currentGeolocationState = geolocationStateRef.current;
-      if (currentGeolocationState.status === "ready" && currentGeolocationState.coords) {
-        return;
-      }
-      if (currentGeolocationState.status === "requesting") {
-        return;
-      }
-      updateGeolocationState({ status: "prompt", coords: null });
+      updateGeolocationState((currentGeolocationState) => {
+        if (currentGeolocationState.status === "ready" && currentGeolocationState.coords) {
+          return currentGeolocationState;
+        }
+        if (currentGeolocationState.status === "requesting") {
+          return currentGeolocationState;
+        }
+        return { status: "prompt", coords: null, unavailableReason: null };
+      });
       return;
     }
 
@@ -2181,6 +2229,7 @@ export function RequestResultsPage() {
             updateGeolocationState({
               status: nextPlan.status,
               coords: null,
+              unavailableReason: null,
             });
           }
         };
@@ -2189,7 +2238,7 @@ export function RequestResultsPage() {
       })
       .catch(() => {
         if (active) {
-          updateGeolocationState({ status: "prompt", coords: null });
+          updateGeolocationState({ status: "prompt", coords: null, unavailableReason: null });
         }
       });
 
@@ -2285,13 +2334,13 @@ export function RequestResultsPage() {
                     type="button"
                     className="button-secondary"
                     onClick={requestCurrentPosition}
-                    disabled={!results || geolocationState.status === "requesting"}
+                    disabled={
+                      !results
+                      || geolocationState.status === "requesting"
+                      || geolocationState.status === "unavailable"
+                    }
                   >
-                    {geolocationState.status === "ready"
-                      ? "Refresh location"
-                      : geolocationState.status === "requesting"
-                        ? "Requesting..."
-                        : "Enable location"}
+                    {getGeolocationButtonLabel(geolocationState)}
                   </button>
                   <span className="muted results-location-status">{formatGeolocationStatus(geolocationState)}</span>
                   <label className="page-size-control">
