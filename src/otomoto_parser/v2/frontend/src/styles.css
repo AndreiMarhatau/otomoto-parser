@@ -798,11 +798,33 @@ textarea {
   margin: 0;
 }
 
+.analysis-group {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.analysis-group h4 {
+  margin: 0;
+  font-size: 0.96rem;
+}
+
 .analysis-list {
   margin: 0;
   padding-left: 1.2rem;
   display: grid;
   gap: 0.45rem;
+}
+
+.analysis-list-critical {
+  color: #8f3131;
+}
+
+.analysis-list-warning {
+  color: #8a5a00;
+}
+
+.analysis-list-positive {
+  color: #22603a;
 }
 
 .report-details summary {
