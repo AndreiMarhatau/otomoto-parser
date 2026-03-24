@@ -272,6 +272,22 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"item": item}
 
+    @app.post("/api/requests/{request_id}/listings/{listing_id}/vehicle-report/lookup/cancel")
+    def cancel_vehicle_report_lookup_endpoint(request_id: str, listing_id: str) -> dict[str, Any]:
+        try:
+            request = _service().get_request(request_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Request not found.") from exc
+        if not request["resultsReady"]:
+            raise HTTPException(status_code=409, detail="Results are not ready yet.")
+        try:
+            item = _service().cancel_vehicle_report_lookup(request_id, listing_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Listing not found.") from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"item": item}
+
     @app.get("/api/requests/{request_id}/excel")
     def request_excel_endpoint(request_id: str) -> FileResponse:
         try:

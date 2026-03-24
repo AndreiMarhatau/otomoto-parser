@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import threading
 import uuid
@@ -12,7 +13,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.error import HTTPError
 
-from ..v1.history_report import VehicleHistoryClient, VehicleHistoryReport
+from ..v1.history_report import CancellationRequested, VehicleHistoryClient, VehicleHistoryReport
 from ..v1.otomoto_vehicle_identity import OtomotoVehicleIdentity, fetch_otomoto_vehicle_identity
 from ..v1.aggregation import generate_aggregations
 from ..v1.parser import RUN_MODE_APPEND_NEWER, RUN_MODE_FULL, RUN_MODE_RESUME, parse_pages
@@ -46,6 +47,14 @@ REPORT_STATUS_RUNNING = "running"
 REPORT_STATUS_SUCCESS = "success"
 REPORT_STATUS_FAILED = "failed"
 REPORT_STATUS_NEEDS_INPUT = "needs_input"
+REPORT_STATUS_CANCELLING = "cancelling"
+REPORT_STATUS_CANCELLED = "cancelled"
+TERMINAL_REPORT_STATUSES = {
+    REPORT_STATUS_SUCCESS,
+    REPORT_STATUS_FAILED,
+    REPORT_STATUS_NEEDS_INPUT,
+    REPORT_STATUS_CANCELLED,
+}
 
 REPORT_MISSING_FIRST_REGISTRATION = "missing_first_registration"
 REPORT_MISSING_REGISTRATION = "missing_registration"
@@ -57,6 +66,7 @@ REPORT_PROGRESS_FETCHING_REPORT = "Fetching vehicle history report..."
 
 DEFAULT_REPORT_LOOKUP_DAYS_BACK = 120
 DEFAULT_REPORT_LOOKUP_DAYS_FORWARD = 14
+STRICT_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 class VehicleReportNeedsInput(Exception):
@@ -87,10 +97,19 @@ def _date_range_defaults() -> tuple[str, str]:
 
 
 def _normalize_lookup_date(value: str) -> str:
+    if not isinstance(value, str) or not STRICT_DATE_RE.fullmatch(value):
+        raise RuntimeError("Invalid date format. Use YYYY-MM-DD.")
     try:
         return date.fromisoformat(value).isoformat()
     except ValueError as exc:
         raise RuntimeError("Invalid date format. Use YYYY-MM-DD.") from exc
+
+
+def _normalize_lookup_identifier(value: str, *, label: str) -> str:
+    normalized = "".join(str(value).upper().split())
+    if not normalized:
+        raise RuntimeError(f"{label} cannot be empty.")
+    return normalized
 
 
 def _report_lookup_options(
@@ -354,12 +373,16 @@ class ParserAppService:
         self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="parser-app")
         self._futures: dict[str, Future[Any]] = {}
         self._report_futures: dict[tuple[str, str], Future[Any]] = {}
+        self._report_cancel_events: dict[tuple[str, str], threading.Event] = {}
         self._lock = threading.Lock()
         self._request_locks: dict[str, threading.Lock] = {}
         self._recover_in_progress_requests()
         self._recover_in_progress_report_lookups()
 
     def shutdown(self) -> None:
+        with self._lock:
+            for event in self._report_cancel_events.values():
+                event.set()
         self.executor.shutdown(wait=False, cancel_futures=True)
 
     def _recover_in_progress_requests(self) -> None:
@@ -381,7 +404,7 @@ class ParserAppService:
                 status = _read_json(status_path, None)
                 if not isinstance(status, dict):
                     continue
-                if status.get("status") != REPORT_STATUS_RUNNING:
+                if status.get("status") not in {REPORT_STATUS_RUNNING, REPORT_STATUS_CANCELLING}:
                     continue
                 self._write_json_recovered_report_status(status_path, status)
 
@@ -639,7 +662,7 @@ class ParserAppService:
                 cached = _read_json(cache_path, None)
                 if cached is not None:
                     return cached
-                if status.get("status") in {REPORT_STATUS_RUNNING, REPORT_STATUS_NEEDS_INPUT}:
+                if status.get("status") in {REPORT_STATUS_RUNNING, REPORT_STATUS_CANCELLING, REPORT_STATUS_NEEDS_INPUT, REPORT_STATUS_CANCELLED}:
                     return self._build_vehicle_report_state_payload(
                         request_id,
                         listing,
@@ -653,7 +676,7 @@ class ParserAppService:
                         listing,
                         status=status,
                     )
-            elif report_lookup_running or status.get("status") == REPORT_STATUS_RUNNING:
+            elif report_lookup_running or status.get("status") in {REPORT_STATUS_RUNNING, REPORT_STATUS_CANCELLING}:
                 raise RuntimeError("A vehicle report lookup is already running for this listing.")
             url = listing.get("url")
             if not isinstance(url, str) or not url:
@@ -723,22 +746,30 @@ class ParserAppService:
                 identity = self._fetch_listing_identity(url)
             if not identity.vin:
                 raise RuntimeError("VIN is missing, so the vehicle report cannot be fetched.")
+            normalized_vin = _normalize_lookup_identifier(identity.vin, label="VIN")
             normalized_from = _normalize_lookup_date(date_from)
             normalized_to = _normalize_lookup_date(date_to)
             if normalized_from > normalized_to:
                 raise RuntimeError("Start date cannot be later than end date.")
-            normalized_registration = registration_number.strip().upper().replace(" ", "")
-            if not normalized_registration:
-                raise RuntimeError("Registration number cannot be empty.")
+            normalized_registration = _normalize_lookup_identifier(registration_number, label="Registration number")
             if cache_path.exists():
                 cache_path.unlink()
             self._write_vehicle_report_status(
                 status_path,
                 status=REPORT_STATUS_RUNNING,
-                identity=identity,
+                identity=OtomotoVehicleIdentity(
+                    advert_id=identity.advert_id,
+                    encrypted_vin=None,
+                    encrypted_first_registration_date=identity.encrypted_first_registration_date,
+                    encrypted_registration_number=identity.encrypted_registration_number,
+                    vin=normalized_vin,
+                    first_registration_date=identity.first_registration_date,
+                    registration_number=normalized_registration,
+                ),
                 progress_message=f"Searching reports from {normalized_from} to {normalized_to}...",
                 lookup={
                     "registrationNumber": normalized_registration,
+                    "vin": normalized_vin,
                     "dateRange": {"from": normalized_from, "to": normalized_to},
                 },
             )
@@ -746,10 +777,65 @@ class ParserAppService:
                 request_id,
                 canonical_listing_id,
                 listing,
-                identity,
+                OtomotoVehicleIdentity(
+                    advert_id=identity.advert_id,
+                    encrypted_vin=None,
+                    encrypted_first_registration_date=identity.encrypted_first_registration_date,
+                    encrypted_registration_number=identity.encrypted_registration_number,
+                    vin=normalized_vin,
+                    first_registration_date=identity.first_registration_date,
+                    registration_number=normalized_registration,
+                ),
                 normalized_registration,
                 normalized_from,
                 normalized_to,
+            )
+            return self._build_vehicle_report_state_payload(request_id, listing)
+
+    def cancel_vehicle_report_lookup(self, request_id: str, listing_id: str) -> dict[str, Any]:
+        with self._request_lock(request_id):
+            listing = self._resolve_listing_for_report(request_id, listing_id)
+            canonical_listing_id = listing["id"]
+            status_path = self._vehicle_report_status_path(request_id, canonical_listing_id)
+            status = _read_json(status_path, {})
+            future_key = (request_id, canonical_listing_id)
+            with self._lock:
+                active_future = self._report_futures.get(future_key)
+                cancel_event = self._report_cancel_events.get(future_key)
+                is_running = active_future is not None and not active_future.done()
+                if not is_running or cancel_event is None:
+                    raise RuntimeError("No active vehicle report lookup is currently running for this listing.")
+                cancel_event.set()
+            cached = _read_json(self._vehicle_report_path(request_id, canonical_listing_id), None)
+            latest_status = _read_json(status_path, {})
+            if cached is not None or latest_status.get("status") in TERMINAL_REPORT_STATUSES:
+                return self._build_vehicle_report_state_payload(request_id, listing, status=latest_status)
+            with self._lock:
+                latest_future = self._report_futures.get(future_key)
+                if latest_future is None or latest_future.done():
+                    final_status = _read_json(status_path, {})
+                    if final_status.get("status") in TERMINAL_REPORT_STATUSES:
+                        return self._build_vehicle_report_state_payload(request_id, listing, status=final_status)
+                    raise RuntimeError("No active vehicle report lookup is currently running for this listing.")
+            lookup = status.get("lookup") if isinstance(status.get("lookup"), dict) else {}
+            identity = self._read_identity_from_status(status)
+            registration_number = lookup.get("registrationNumber")
+            self._write_vehicle_report_status(
+                status_path,
+                status=REPORT_STATUS_CANCELLING,
+                error="Vehicle report lookup cancellation requested.",
+                progress_message="Cancelling vehicle report lookup...",
+                identity=identity,
+                lookup=lookup or None,
+                lookup_options=_report_lookup_options(
+                    vin=lookup.get("vin") or (identity.vin if identity else None),
+                    registration_number=registration_number or (identity.registration_number if identity else None),
+                    first_registration_date=(identity.first_registration_date if identity else None),
+                    reason=REPORT_UPSTREAM_404,
+                    error="Vehicle report lookup cancellation requested.",
+                    date_from=(lookup.get("dateRange") or {}).get("from"),
+                    date_to=(lookup.get("dateRange") or {}).get("to"),
+                ) if registration_number or identity is not None else None,
             )
             return self._build_vehicle_report_state_payload(request_id, listing)
 
@@ -942,9 +1028,13 @@ class ParserAppService:
             encrypted_vin=None,
             encrypted_first_registration_date=None,
             encrypted_registration_number=None,
-            vin=vin,
+            vin=_normalize_lookup_identifier(vin, label="VIN"),
             first_registration_date=identity.get("firstRegistrationDate"),
-            registration_number=identity.get("registrationNumber"),
+            registration_number=(
+                _normalize_lookup_identifier(identity["registrationNumber"], label="Registration number")
+                if isinstance(identity.get("registrationNumber"), str) and identity.get("registrationNumber")
+                else None
+            ),
         )
 
     def _fetch_listing_identity(self, url: str) -> OtomotoVehicleIdentity:
@@ -1029,6 +1119,8 @@ class ParserAppService:
             existing = self._report_futures.get(future_key)
             if existing is not None and not existing.done():
                 return False
+            cancel_event = threading.Event()
+            self._report_cancel_events[future_key] = cancel_event
             self._report_futures[future_key] = self.executor.submit(
                 self._run_vehicle_report_lookup,
                 request_id,
@@ -1038,6 +1130,7 @@ class ParserAppService:
                 registration_number,
                 date_from,
                 date_to,
+                cancel_event,
             )
             return True
 
@@ -1050,6 +1143,7 @@ class ParserAppService:
         registration_number: str,
         date_from: str,
         date_to: str,
+        cancel_event: threading.Event,
     ) -> None:
         status_path = self._vehicle_report_status_path(request_id, listing_id)
         cache_path = self._vehicle_report_path(request_id, listing_id)
@@ -1059,10 +1153,20 @@ class ParserAppService:
             timeout_s=float(self.parser_options.get("request_timeout_s", 45.0)),
             retry_attempts=int(self.parser_options.get("retry_attempts", 4)),
             backoff_base_s=float(self.parser_options.get("backoff_base", 1.0)),
+            cancel_event=cancel_event,
         )
         total_days = (end - start).days + 1
         try:
             for offset in range(max(0, total_days)):
+                if cancel_event.is_set():
+                    self._write_cancelled_vehicle_report_status(
+                        status_path,
+                        identity=identity,
+                        registration_number=registration_number,
+                        date_from=date_from,
+                        date_to=date_to,
+                    )
+                    return
                 candidate_date = (start + timedelta(days=offset)).isoformat()
                 self._write_vehicle_report_status(
                     status_path,
@@ -1071,13 +1175,32 @@ class ParserAppService:
                     progress_message=f"Checking {candidate_date} ({offset + 1}/{total_days})...",
                     lookup={
                         "registrationNumber": registration_number,
+                        "vin": identity.vin,
                         "dateRange": {"from": date_from, "to": date_to},
                         "currentDate": candidate_date,
                     },
                 )
                 try:
                     history = history_client.fetch_report(registration_number, identity.vin, candidate_date)
+                except CancellationRequested:
+                    self._write_cancelled_vehicle_report_status(
+                        status_path,
+                        identity=identity,
+                        registration_number=registration_number,
+                        date_from=date_from,
+                        date_to=date_to,
+                    )
+                    return
                 except RuntimeError as exc:
+                    if cancel_event.is_set():
+                        self._write_cancelled_vehicle_report_status(
+                            status_path,
+                            identity=identity,
+                            registration_number=registration_number,
+                            date_from=date_from,
+                            date_to=date_to,
+                        )
+                        return
                     if "HTTP 404" in str(exc):
                         continue
                     self._write_vehicle_report_status(
@@ -1087,8 +1210,18 @@ class ParserAppService:
                         identity=identity,
                         lookup={
                             "registrationNumber": registration_number,
+                            "vin": identity.vin,
                             "dateRange": {"from": date_from, "to": date_to},
                         },
+                    )
+                    return
+                if cancel_event.is_set():
+                    self._write_cancelled_vehicle_report_status(
+                        status_path,
+                        identity=identity,
+                        registration_number=registration_number,
+                        date_from=date_from,
+                        date_to=date_to,
                     )
                     return
                 payload = self._build_vehicle_report_payload(
@@ -1104,6 +1237,15 @@ class ParserAppService:
                     ),
                     history,
                 )
+                if cancel_event.is_set():
+                    self._write_cancelled_vehicle_report_status(
+                        status_path,
+                        identity=identity,
+                        registration_number=registration_number,
+                        date_from=date_from,
+                        date_to=date_to,
+                    )
+                    return
                 _write_json(cache_path, payload)
                 self._write_vehicle_report_status(
                     status_path,
@@ -1112,6 +1254,7 @@ class ParserAppService:
                     identity=payload["identity"],
                     lookup={
                         "registrationNumber": registration_number,
+                        "vin": identity.vin,
                         "dateRange": {"from": date_from, "to": date_to},
                         "currentDate": candidate_date,
                     },
@@ -1141,6 +1284,7 @@ class ParserAppService:
                 ),
                 lookup={
                     "registrationNumber": registration_number,
+                    "vin": identity.vin,
                     "dateRange": {"from": date_from, "to": date_to},
                 },
                 lookup_options=lookup_options,
@@ -1153,6 +1297,7 @@ class ParserAppService:
                 identity=identity,
                 lookup={
                     "registrationNumber": registration_number,
+                    "vin": identity.vin,
                     "dateRange": {"from": date_from, "to": date_to},
                 },
                 lookup_options=_report_lookup_options(
@@ -1168,6 +1313,38 @@ class ParserAppService:
         finally:
             with self._lock:
                 self._report_futures.pop((request_id, listing_id), None)
+                self._report_cancel_events.pop((request_id, listing_id), None)
+
+    def _write_cancelled_vehicle_report_status(
+        self,
+        status_path: Path,
+        *,
+        identity: OtomotoVehicleIdentity,
+        registration_number: str,
+        date_from: str,
+        date_to: str,
+    ) -> None:
+        self._write_vehicle_report_status(
+            status_path,
+            status=REPORT_STATUS_CANCELLED,
+            error="Vehicle report lookup was cancelled.",
+            identity=identity,
+            progress_message=None,
+            lookup={
+                "registrationNumber": registration_number,
+                "vin": identity.vin,
+                "dateRange": {"from": date_from, "to": date_to},
+            },
+            lookup_options=_report_lookup_options(
+                vin=identity.vin,
+                registration_number=registration_number,
+                first_registration_date=identity.first_registration_date,
+                reason=REPORT_UPSTREAM_404,
+                error="Vehicle report lookup was cancelled.",
+                date_from=date_from,
+                date_to=date_to,
+            ),
+        )
 
     def _canonical_listing_id(self, record: dict[str, Any]) -> str:
         node = record.get("node") if isinstance(record.get("node"), dict) else {}

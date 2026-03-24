@@ -1,5 +1,7 @@
 import http.client
 import json
+import threading
+import time
 from http.cookiejar import Cookie, CookieJar
 from urllib.request import HTTPCookieProcessor, build_opener
 from urllib.error import HTTPError
@@ -8,8 +10,11 @@ import pytest
 
 from otomoto_parser.v1.history_report import (
     VehicleHistoryClient,
+    build_arg_parser,
     _normalize_first_registration_date,
     _normalize_registration_number,
+    _normalize_vin_number,
+    _with_retry,
 )
 
 
@@ -62,14 +67,28 @@ class _FakeOpener:
 
 def test_normalize_first_registration_date() -> None:
     assert _normalize_first_registration_date("2005-01-01") == "2005-01-01"
-    assert _normalize_first_registration_date("01.01.2005") == "2005-01-01"
     assert _normalize_registration_number("LUB 0835R") == "LUB0835R"
+    assert _normalize_vin_number(" wdd sj4eb2 en056917 ") == "WDDSJ4EB2EN056917"
+
+
+def test_normalize_first_registration_date_rejects_non_iso_input() -> None:
+    with pytest.raises(ValueError, match="YYYY-MM-DD"):
+        _normalize_first_registration_date("01.01.2005")
+
+
+def test_cli_help_advertises_only_iso_date_format() -> None:
+    parser = build_arg_parser()
+    help_text = parser.format_help()
+    assert "YYYY-MM-DD" in help_text
+    assert "DD.MM.YYYY" not in help_text
 
 
 def test_fetch_report_bootstraps_session_and_reuses_nf_wid() -> None:
     jar = CookieJar()
 
     def handler(request):
+        if request.method == "GET":
+            return _FakeResponse("<html><body>shell</body></html>")
         if "engine/ng/index" in request.full_url:
             jar.set_cookie(_make_cookie("XSRF-TOKEN", "token-123"))
             return _FakeResponse(
@@ -95,7 +114,7 @@ def test_fetch_report_bootstraps_session_and_reuses_nf_wid() -> None:
     opener = _FakeOpener(handler)
     client = VehicleHistoryClient(opener=opener, cookie_jar=jar)
 
-    report = client.fetch_report("DX04419", "VF36D6FZM21283134", "01.01.2005")
+    report = client.fetch_report("DX 04419", " vf36 d6fzm21283134 ", "2005-01-01")
 
     nf_wid_values = {request.headers["Nf_wid"] for request in opener.requests if "/data/" in request.full_url}
     assert len(nf_wid_values) == 1
@@ -109,6 +128,8 @@ def test_fetch_report_retries_on_500_but_not_on_400() -> None:
     attempts = {"vehicle-data": 0, "autodna-data": 0, "carfax-data": 0, "timeline-data": 0}
 
     def handler(request):
+        if request.method == "GET":
+            return _FakeResponse("<html><body>shell</body></html>")
         if "engine/ng/index" in request.full_url:
             jar.set_cookie(_make_cookie("XSRF-TOKEN", "token-123"))
             return _FakeResponse('<script src="/nforms/api/HistoriaPojazdu/1.0.20/resource?uri=main.js"></script>')
@@ -140,6 +161,8 @@ def test_fetch_report_retries_on_500_but_not_on_400() -> None:
     jar_400 = CookieJar()
 
     def handler_400(request):
+        if request.method == "GET":
+            return _FakeResponse("<html><body>shell</body></html>")
         if "engine/ng/index" in request.full_url:
             jar_400.set_cookie(_make_cookie("XSRF-TOKEN", "token-123"))
             return _FakeResponse('<script src="/nforms/api/HistoriaPojazdu/1.0.20/resource?uri=main.js"></script>')
@@ -164,6 +187,8 @@ def test_fetch_report_treats_optional_external_404_as_unavailable() -> None:
     jar = CookieJar()
 
     def handler(request):
+        if request.method == "GET":
+            return _FakeResponse("<html><body>shell</body></html>")
         if "engine/ng/index" in request.full_url:
             jar.set_cookie(_make_cookie("XSRF-TOKEN", "token-123"))
             return _FakeResponse('<script src="/nforms/api/HistoriaPojazdu/1.0.20/resource?uri=main.js"></script>')
@@ -188,6 +213,58 @@ def test_fetch_report_treats_optional_external_404_as_unavailable() -> None:
     assert report.timeline_data["timelineData"]["events"][0]["type"] == "registration"
 
 
+def test_bootstrap_session_falls_back_to_post_when_shell_html_has_no_api_version() -> None:
+    jar = CookieJar()
+
+    def handler(request):
+        if request.method == "GET":
+            return _FakeResponse("<html><body>shell</body></html>")
+        if "engine/ng/index" in request.full_url:
+            jar.set_cookie(_make_cookie("XSRF-TOKEN", "token-123"))
+            return _FakeResponse(
+                '<link href="/nforms/api/HistoriaPojazdu/1.0.20/resource?uri=styles.css" rel="stylesheet" />'
+            )
+        raise AssertionError(request.full_url)
+
+    client = VehicleHistoryClient(opener=_FakeOpener(handler), cookie_jar=jar, retry_attempts=0, backoff_base_s=0.0)
+
+    assert client._bootstrap_session("HistoriaPojazdu:123") == "1.0.20"
+
+
+def test_bootstrap_session_falls_back_to_post_when_get_has_version_but_no_xsrf_cookie() -> None:
+    jar = CookieJar()
+
+    def handler(request):
+        if request.method == "GET":
+            return _FakeResponse('<script src="/nforms/api/HistoriaPojazdu/1.0.20/resource?uri=main.js"></script>')
+        if "engine/ng/index" in request.full_url:
+            jar.set_cookie(_make_cookie("XSRF-TOKEN", "token-123"))
+            return _FakeResponse('<script src="/nforms/api/HistoriaPojazdu/1.0.21/resource?uri=main.js"></script>')
+        raise AssertionError(request.full_url)
+
+    client = VehicleHistoryClient(opener=_FakeOpener(handler), cookie_jar=jar, retry_attempts=0, backoff_base_s=0.0)
+
+    assert client._bootstrap_session("HistoriaPojazdu:123") == "1.0.21"
+    assert client._cookie_value("XSRF-TOKEN") == "token-123"
+
+
+def test_bootstrap_session_falls_back_to_post_when_get_returns_http_error() -> None:
+    jar = CookieJar()
+
+    def handler(request):
+        if request.method == "GET":
+            raise HTTPError(request.full_url, 405, "Method Not Allowed", hdrs=None, fp=None)
+        if "engine/ng/index" in request.full_url:
+            jar.set_cookie(_make_cookie("XSRF-TOKEN", "token-123"))
+            return _FakeResponse('<script src="/nforms/api/HistoriaPojazdu/1.0.21/resource?uri=main.js"></script>')
+        raise AssertionError(request.full_url)
+
+    client = VehicleHistoryClient(opener=_FakeOpener(handler), cookie_jar=jar, retry_attempts=0, backoff_base_s=0.0)
+
+    assert client._bootstrap_session("HistoriaPojazdu:123") == "1.0.21"
+    assert client._cookie_value("XSRF-TOKEN") == "token-123"
+
+
 def test_custom_opener_cookie_jar_is_discovered_and_zero_retries_still_runs() -> None:
     opener_jar = CookieJar()
     opener = build_opener(HTTPCookieProcessor(opener_jar))
@@ -208,15 +285,11 @@ def test_custom_opener_cookie_jar_is_discovered_and_zero_retries_still_runs() ->
         calls["count"] += 1
         return "ok"
 
-    from otomoto_parser.v1.history_report import _with_retry
-
     assert _with_retry(action, attempts=0, base_delay=0.0, label="test") == "ok"
     assert calls["count"] == 1
 
 
 def test_with_retry_handles_connection_level_failures() -> None:
-    from otomoto_parser.v1.history_report import _with_retry
-
     calls = {"count": 0}
 
     def action():
@@ -227,3 +300,35 @@ def test_with_retry_handles_connection_level_failures() -> None:
 
     assert _with_retry(action, attempts=1, base_delay=0.0, label="test") == "ok"
     assert calls["count"] == 2
+
+
+def test_with_retry_stops_during_backoff_when_cancellation_is_requested() -> None:
+    calls = {"count": 0}
+    cancel_event = threading.Event()
+
+    def action():
+        calls["count"] += 1
+        raise TimeoutError("boom")
+
+    def trigger_cancel() -> None:
+        time.sleep(0.05)
+        cancel_event.set()
+
+    worker = threading.Thread(target=trigger_cancel)
+    worker.start()
+    with pytest.raises(RuntimeError, match="cancelled"):
+        _with_retry(
+            action,
+            attempts=3,
+            base_delay=0.2,
+            label="test",
+            should_abort=cancel_event.is_set,
+        )
+    worker.join()
+    assert calls["count"] == 1
+
+
+def test_fetch_report_rejects_non_iso_date_input() -> None:
+    client = VehicleHistoryClient(retry_attempts=0, backoff_base_s=0.0)
+    with pytest.raises(ValueError, match="YYYY-MM-DD"):
+        client.fetch_report("DX04419", "VF36D6FZM21283134", "01.01.2005")
