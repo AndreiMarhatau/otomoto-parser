@@ -418,6 +418,47 @@ def test_build_categorized_payload_assigns_expected_categories(tmp_path: Path) -
     assert payload["categories"][CATEGORY_DATA_NOT_VERIFIED]["count"] == 1
     assert payload["categories"][CATEGORY_IMPORTED_FROM_US]["count"] == 1
     assert payload["categories"][CATEGORY_TO_BE_CHECKED]["count"] == 1
+    assert list(payload["categories"]) == [
+        CATEGORY_PRICE_OUT_OF_RANGE,
+        CATEGORY_IMPORTED_FROM_US,
+        CATEGORY_DATA_NOT_VERIFIED,
+        CATEGORY_TO_BE_CHECKED,
+    ]
+
+
+def test_us_origin_takes_precedence_over_unverified(tmp_path: Path) -> None:
+    record = _record(
+        "us-and-unverified",
+        price_evaluation={"indicator": "IN"},
+        cepik_verified=False,
+        country_origin="us",
+        title="US import and unverified",
+    )
+
+    results_path = tmp_path / "results.jsonl"
+    results_path.write_text(f"{json.dumps(record, ensure_ascii=True)}\n", encoding="utf-8")
+
+    payload = build_categorized_payload(results_path)
+    assert payload["categories"][CATEGORY_IMPORTED_FROM_US]["count"] == 1
+    assert payload["categories"][CATEGORY_DATA_NOT_VERIFIED]["count"] == 0
+
+
+def test_price_out_of_range_takes_precedence_over_us_origin_and_unverified(tmp_path: Path) -> None:
+    record = _record(
+        "out-of-range-us-unverified",
+        price_evaluation=None,
+        cepik_verified=False,
+        country_origin="us",
+        title="Out of range, US import, and unverified",
+    )
+
+    results_path = tmp_path / "results.jsonl"
+    results_path.write_text(f"{json.dumps(record, ensure_ascii=True)}\n", encoding="utf-8")
+
+    payload = build_categorized_payload(results_path)
+    assert payload["categories"][CATEGORY_PRICE_OUT_OF_RANGE]["count"] == 1
+    assert payload["categories"][CATEGORY_IMPORTED_FROM_US]["count"] == 0
+    assert payload["categories"][CATEGORY_DATA_NOT_VERIFIED]["count"] == 0
 
 
 def test_missing_cepik_verified_falls_back_to_to_be_checked(tmp_path: Path) -> None:
@@ -827,6 +868,30 @@ def test_results_endpoint_returns_only_requested_page_for_selected_category(tmp_
             assert [item["id"] for item in page_last_payload["items"]] == ["extra-19"]
     finally:
         globals()["_sample_records"] = original_sample_records
+
+
+def test_results_endpoint_exposes_imported_from_us_before_data_not_verified(tmp_path: Path) -> None:
+    service = ParserAppService(tmp_path, parser_runner=FakeParserRunner(), parser_options={})
+    app = create_app(data_dir=tmp_path, service=service)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        response = client.get(f"/api/requests/{request_id}/results")
+        assert response.status_code == 200
+        payload = response.json()
+        assert list(payload["categories"])[:4] == [
+            CATEGORY_PRICE_OUT_OF_RANGE,
+            CATEGORY_IMPORTED_FROM_US,
+            CATEGORY_DATA_NOT_VERIFIED,
+            CATEGORY_TO_BE_CHECKED,
+        ]
+        assert payload["currentCategory"] == CATEGORY_PRICE_OUT_OF_RANGE
 
 
 def test_saved_categories_can_be_created_assigned_renamed_deleted_and_survive_redo(tmp_path: Path) -> None:
