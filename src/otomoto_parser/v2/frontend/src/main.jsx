@@ -1092,6 +1092,10 @@ function VehicleReportModal({ state, redFlagState, settings, onClose, onRegenera
   const redFlagData = redFlagState?.data || null;
   const redFlagError = redFlagState?.error || null;
   const redFlagBusy = redFlagState?.loading || redFlagState?.running || redFlagState?.cancelling || ["running", "cancelling"].includes(redFlagData?.status) || false;
+  const analysis = redFlagData?.analysis || null;
+  const redFlags = analysis?.redFlags || [];
+  const warnings = analysis?.warnings || [];
+  const greenFlags = analysis?.greenFlags || [];
   const apiKeyConfigured = settings?.openaiApiKeyConfigured || false;
   const redFlagTooltip = apiKeyConfigured ? "Find serious red flags with GPT-5.4" : "Set an OpenAI API key in Settings to enable red-flag analysis";
   const [registrationNumber, setRegistrationNumber] = React.useState("");
@@ -1251,20 +1255,47 @@ function VehicleReportModal({ state, redFlagState, settings, onClose, onRegenera
           {redFlagBusy && redFlagData?.progressMessage ? <p className="progress-box">{redFlagData.progressMessage}</p> : null}
           {redFlagError ? <p className="error-text">{redFlagError}</p> : null}
           {!redFlagError && redFlagData?.error ? <p className="error-text">{redFlagData.error}</p> : null}
-          {redFlagData?.analysis ? (
+          {analysis ? (
             <div className="analysis-result">
-              <p><strong>{redFlagData.analysis.summary}</strong></p>
-              {redFlagData.analysis.redFlags.length ? (
-                <ul className="analysis-list">
-                  {redFlagData.analysis.redFlags.map((flag) => (
-                    <li key={flag}>{flag}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="muted">No serious red flags found.</p>
-              )}
+              <p><strong>{analysis.summary}</strong></p>
+              <div className="analysis-group">
+                <h4>Serious red flags</h4>
+                {redFlags.length ? (
+                  <ul className="analysis-list analysis-list-critical">
+                    {redFlags.map((flag) => (
+                      <li key={flag}>{flag}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="muted">No serious red flags found.</p>
+                )}
+              </div>
+              <div className="analysis-group">
+                <h4>Warnings</h4>
+                {warnings.length ? (
+                  <ul className="analysis-list analysis-list-warning">
+                    {warnings.map((flag) => (
+                      <li key={flag}>{flag}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="muted">No warnings need attention.</p>
+                )}
+              </div>
+              <div className="analysis-group">
+                <h4>Green flags</h4>
+                {greenFlags.length ? (
+                  <ul className="analysis-list analysis-list-positive">
+                    {greenFlags.map((flag) => (
+                      <li key={flag}>{flag}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="muted">No positive signals identified.</p>
+                )}
+              </div>
               <p className="muted">
-                {redFlagData.analysis.webSearchUsed ? "Used web search for VIN-related checks." : "Did not need web search for this run."}
+                {analysis.webSearchUsed ? "Used web search for VIN-related checks." : "Did not need web search for this run."}
               </p>
             </div>
           ) : null}

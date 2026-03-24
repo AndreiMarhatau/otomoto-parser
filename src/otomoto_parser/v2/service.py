@@ -191,11 +191,12 @@ def default_red_flag_analyzer(api_key: str, model_input: dict[str, Any], cancel_
                     {
                         "type": "input_text",
                         "text": (
-                            "You analyze used-car listings and identify only serious red flags. "
+                            "You analyze used-car listings and identify serious risks, notable warnings, and positive signals. "
                             "Use the provided listing data first, then use web search when the VIN or other identifiers could reveal recalls, salvage history, auction history, theft reports, title issues, or other material risks. "
-                            "Return strict JSON with keys summary and redFlags. "
-                            "summary must be a short string. redFlags must be an array of short strings. "
-                            "List only high-signal concerns; if there are no serious red flags, return an empty array."
+                            "Return strict JSON with keys summary, redFlags, warnings, and greenFlags. "
+                            "summary must be a short string. redFlags, warnings, and greenFlags must each be arrays of short strings. "
+                            "redFlags should contain only serious high-signal concerns. warnings should contain issues that merit attention but are not critical. "
+                            "greenFlags should contain concrete positive signals about the listing. If a category has nothing meaningful to report, return an empty array for it."
                         ),
                     }
                 ],
@@ -234,17 +235,19 @@ def default_red_flag_analyzer(api_key: str, model_input: dict[str, Any], cancel_
 
     text = _extract_response_output_text(payload)
     parsed = _parse_analysis_json(text)
-    raw_flags = parsed.get("redFlags", [])
-    if not isinstance(raw_flags, list):
-        raise RuntimeError("The OpenAI response must contain a redFlags array.")
-    red_flags = []
-    for value in raw_flags:
-        text_value = str(value).strip()
-        if text_value:
-            red_flags.append(text_value)
+    red_flags = _normalize_analysis_items(parsed, "redFlags")
+    warnings = _normalize_analysis_items(parsed, "warnings")
+    green_flags = _normalize_analysis_items(parsed, "greenFlags")
     summary = str(parsed.get("summary") or "").strip()
     if not summary:
-        summary = "No serious red flags found." if not red_flags else f"{len(red_flags)} serious red flag(s) found."
+        if red_flags:
+            summary = f"{len(red_flags)} serious red flag(s) found."
+        elif warnings:
+            summary = f"{len(warnings)} warning(s) need attention."
+        elif green_flags:
+            summary = f"{len(green_flags)} positive signal(s) found."
+        else:
+            summary = "No serious red flags found."
 
     output = payload.get("output", [])
     web_search_used = any(
@@ -254,8 +257,22 @@ def default_red_flag_analyzer(api_key: str, model_input: dict[str, Any], cancel_
     return {
         "summary": summary,
         "redFlags": red_flags,
+        "warnings": warnings,
+        "greenFlags": green_flags,
         "webSearchUsed": web_search_used,
     }
+
+
+def _normalize_analysis_items(parsed: dict[str, Any], key: str) -> list[str]:
+    raw_items = parsed.get(key, [])
+    if not isinstance(raw_items, list):
+        raise RuntimeError(f"The OpenAI response must contain a {key} array.")
+    items = []
+    for value in raw_items:
+        text_value = str(value).strip()
+        if text_value:
+            items.append(text_value)
+    return items
 
 
 def _date_range_defaults() -> tuple[str, str]:
@@ -1231,7 +1248,7 @@ class ParserAppService:
         if isinstance(cached, dict):
             cached_report_snapshot_id = cached.get("reportSnapshotId") or _build_report_snapshot_id(cached.get("vehicleReport"))
             if cached_report_snapshot_id == current_report_snapshot_id:
-                return cached
+                return self._normalize_red_flag_analysis_payload(cached)
         if cached is not None:
             stale_retrieved_at = cached.get("retrievedAt") if isinstance(cached, dict) else None
             stale_last_attempt_at = cached.get("retrievedAt") if isinstance(cached, dict) else None
@@ -1270,6 +1287,21 @@ class ParserAppService:
             "stale": False,
             "apiKeyConfigured": self._resolve_openai_api_key() is not None,
         }
+
+    def _normalize_red_flag_analysis_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(payload)
+        analysis = normalized.get("analysis")
+        if not isinstance(analysis, dict):
+            return normalized
+        normalized_analysis = dict(analysis)
+        for key in ("redFlags", "warnings", "greenFlags"):
+            values = normalized_analysis.get(key, [])
+            if not isinstance(values, list):
+                values = []
+            normalized_analysis[key] = [str(value).strip() for value in values if str(value).strip()]
+        normalized_analysis["webSearchUsed"] = bool(normalized_analysis.get("webSearchUsed"))
+        normalized["analysis"] = normalized_analysis
+        return normalized
 
     def _is_latest_red_flag_run(self, request_id: str, listing_id: str, run_id: str) -> bool:
         with self._lock:
@@ -1402,6 +1434,8 @@ class ParserAppService:
                 "analysis": {
                     "summary": str(analysis.get("summary") or "").strip(),
                     "redFlags": [str(value).strip() for value in analysis.get("redFlags", []) if str(value).strip()],
+                    "warnings": [str(value).strip() for value in analysis.get("warnings", []) if str(value).strip()],
+                    "greenFlags": [str(value).strip() for value in analysis.get("greenFlags", []) if str(value).strip()],
                     "webSearchUsed": bool(analysis.get("webSearchUsed")),
                 },
             }

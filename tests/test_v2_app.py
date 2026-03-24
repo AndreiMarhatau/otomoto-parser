@@ -206,6 +206,12 @@ def _fake_red_flag_analyzer(_: str, model_input: dict[str, Any], cancel_event: t
             "VIN appears in U.S. import context and should be checked for damage history.",
             "Vehicle history sources show multiple external datasets, which merits manual verification.",
         ],
+        "warnings": [
+            "The listing omits enough provenance detail that import paperwork should be reviewed manually.",
+        ],
+        "greenFlags": [
+            "The listing page, search result, and vehicle report align on the core vehicle identity.",
+        ],
         "webSearchUsed": True,
     }
 
@@ -214,14 +220,14 @@ def _blocking_red_flag_analyzer(_: str, model_input: dict[str, Any], cancel_even
     del model_input
     if cancel_event.wait(5):
         raise service_module.CancellationRequested("cancelled")
-    return {"summary": "late", "redFlags": [], "webSearchUsed": False}
+    return {"summary": "late", "redFlags": [], "warnings": [], "greenFlags": [], "webSearchUsed": False}
 
 
 def _slow_success_red_flag_analyzer(_: str, model_input: dict[str, Any], cancel_event: threading.Event) -> dict[str, Any]:
     del model_input
     if cancel_event.wait(1):
         raise service_module.CancellationRequested("cancelled")
-    return {"summary": "Completed", "redFlags": [], "webSearchUsed": False}
+    return {"summary": "Completed", "redFlags": [], "warnings": [], "greenFlags": [], "webSearchUsed": False}
 
 
 def _slow_cancel_red_flag_analyzer(_: str, model_input: dict[str, Any], cancel_event: threading.Event) -> dict[str, Any]:
@@ -229,7 +235,7 @@ def _slow_cancel_red_flag_analyzer(_: str, model_input: dict[str, Any], cancel_e
     if cancel_event.wait(5):
         time.sleep(0.5)
         raise service_module.CancellationRequested("cancelled")
-    return {"summary": "Completed", "redFlags": [], "webSearchUsed": False}
+    return {"summary": "Completed", "redFlags": [], "warnings": [], "greenFlags": [], "webSearchUsed": False}
 
 
 def _fake_red_flag_analyzer_without_report(_: str, model_input: dict[str, Any], cancel_event: threading.Event) -> dict[str, Any]:
@@ -240,6 +246,8 @@ def _fake_red_flag_analyzer_without_report(_: str, model_input: dict[str, Any], 
     return {
         "summary": "Ran without report.",
         "redFlags": ["No report was available during analysis."],
+        "warnings": ["The analysis had to rely on the listing alone because no vehicle report was cached."],
+        "greenFlags": [],
         "webSearchUsed": False,
     }
 
@@ -1068,6 +1076,12 @@ def test_red_flag_analysis_endpoint_runs_with_listing_page_report_and_web_search
         item = _wait_for_red_flag_status(client, request_id, "4", "success")
         assert item["analysis"]["summary"] == "Serious issues detected."
         assert len(item["analysis"]["redFlags"]) == 2
+        assert item["analysis"]["warnings"] == [
+            "The listing omits enough provenance detail that import paperwork should be reviewed manually.",
+        ]
+        assert item["analysis"]["greenFlags"] == [
+            "The listing page, search result, and vehicle report align on the core vehicle identity.",
+        ]
         assert item["analysis"]["webSearchUsed"] is True
         assert item["reportReady"] is True
         assert item["model"] == "gpt-5.4"
@@ -1100,6 +1114,10 @@ def test_red_flag_analysis_becomes_stale_after_report_is_fetched(monkeypatch, tm
         item = _wait_for_red_flag_status(client, request_id, "4", "success")
         assert item["reportReady"] is False
         assert item["reportSnapshotId"] == "missing"
+        assert item["analysis"]["warnings"] == [
+            "The analysis had to rely on the listing alone because no vehicle report was cached.",
+        ]
+        assert item["analysis"]["greenFlags"] == []
 
         report_response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
         assert report_response.status_code == 200
@@ -1166,6 +1184,63 @@ def test_red_flag_analysis_becomes_stale_after_report_regeneration(monkeypatch, 
         assert stale_item["reportSnapshotId"] == second_snapshot
         assert stale_item["analysisReportSnapshotId"] == first_snapshot
         assert stale_item["error"] == "Analysis is outdated because the vehicle report changed. Run it again."
+
+
+def test_red_flag_analysis_normalizes_legacy_cached_analysis(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "env-test-key-1234")
+    service = ParserAppService(
+        tmp_path,
+        parser_runner=FakeParserRunner(),
+        listing_page_fetcher=_fake_listing_page,
+        parser_options={},
+    )
+    app = create_app(data_dir=tmp_path, service=service)
+
+    monkeypatch.setattr(service_module, "fetch_otomoto_vehicle_identity", lambda url, **kwargs: _fake_identity())
+    monkeypatch.setattr(service_module.VehicleHistoryClient, "fetch_report", lambda self, *args: _fake_history_report())
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        report_response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        assert report_response.status_code == 200
+        report_snapshot_id = report_response.json()["item"]["reportSnapshotId"]
+
+        service_module._write_json(
+            service._red_flag_analysis_path(request_id, "4"),
+            {
+                "listingId": "4",
+                "listingUrl": "https://www.otomoto.pl/osobowe/oferta/mercedes-benz-cla-ID6Gv7s7.html",
+                "listingTitle": "Mercedes-Benz CLA 250",
+                "retrievedAt": "2026-03-24T00:00:00Z",
+                "status": "success",
+                "error": None,
+                "model": "gpt-5.4",
+                "reportReady": True,
+                "reportSnapshotId": report_snapshot_id,
+                "apiKeyConfigured": True,
+                "analysis": {
+                    "summary": "Legacy cache payload.",
+                    "redFlags": ["Existing serious issue."],
+                    "webSearchUsed": True,
+                },
+            },
+        )
+
+        response = client.get(f"/api/requests/{request_id}/listings/4/red-flags")
+        assert response.status_code == 200
+        item = response.json()["item"]
+        assert item["status"] == "success"
+        assert item["analysis"]["summary"] == "Legacy cache payload."
+        assert item["analysis"]["redFlags"] == ["Existing serious issue."]
+        assert item["analysis"]["warnings"] == []
+        assert item["analysis"]["greenFlags"] == []
+        assert item["analysis"]["webSearchUsed"] is True
 
 
 def test_red_flag_analysis_can_be_cancelled(monkeypatch, tmp_path: Path) -> None:
@@ -1237,6 +1312,9 @@ def test_red_flag_analysis_can_rerun_after_cancel_finishes(monkeypatch, tmp_path
         assert start_response.status_code == 200
         item = _wait_for_red_flag_status(client, request_id, "4", "success")
         assert item["analysis"]["summary"] == "Serious issues detected."
+        assert item["analysis"]["warnings"] == [
+            "The listing omits enough provenance detail that import paperwork should be reviewed manually.",
+        ]
 
 
 def test_red_flag_analysis_cannot_restart_while_previous_run_is_cancelling(monkeypatch, tmp_path: Path) -> None:
