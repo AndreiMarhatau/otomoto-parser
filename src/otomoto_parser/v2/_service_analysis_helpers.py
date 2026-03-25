@@ -53,23 +53,28 @@ def _normalize_analysis_items(parsed: dict[str, Any], key: str) -> list[str]:
 def default_red_flag_analyzer(api_key: str, model_input: dict[str, Any], cancel_event: threading.Event) -> dict[str, Any]:
     if cancel_event.is_set():
         raise CancellationRequested("Cancelled before the model request was sent.")
+    payload = _request_payload(model_input)
+    analysis = _parsed_analysis(_responses_request(api_key, payload))
+    if cancel_event.is_set():
+        raise CancellationRequested("Cancelled after the model response was received.")
+    return analysis
+
+
+def _responses_request(api_key: str, payload: dict[str, Any]) -> dict[str, Any]:
     request = Request(
         OPENAI_RESPONSES_URL,
-        data=json.dumps(_request_payload(model_input)).encode("utf-8"),
+        data=json.dumps(payload).encode("utf-8"),
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
         method="POST",
     )
     try:
         with urlopen(request, timeout=90) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+            return json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"OpenAI request failed with HTTP {exc.code}: {detail}") from exc
     except (URLError, TimeoutError, ValueError) as exc:
         raise RuntimeError(f"OpenAI request failed: {exc}") from exc
-    if cancel_event.is_set():
-        raise CancellationRequested("Cancelled after the model response was received.")
-    return _parsed_analysis(payload)
 
 
 def _request_payload(model_input: dict[str, Any]) -> dict[str, Any]:
@@ -103,9 +108,10 @@ def _parsed_analysis(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "summary": summary,
         "redFlags": red_flags,
-        "warnings": warnings,
-        "greenFlags": green_flags,
+        "warnings": _normalize_analysis_items(parsed, "warnings"),
+        "greenFlags": _normalize_analysis_items(parsed, "greenFlags"),
         "webSearchUsed": any(isinstance(item, dict) and str(item.get("type", "")).startswith("web_search") for item in output),
+        "models": {"redFlags": OPENAI_REDFLAG_MODEL, "warningsAndGreenFlags": OPENAI_REDFLAG_MODEL},
     }
 
 

@@ -23,6 +23,10 @@ from ._service_json import _build_report_snapshot_id, _read_json, _write_json
 
 
 class ServiceAnalysisMixin:
+    def _default_red_flag_models(self, model_name: str | None = None) -> dict[str, str]:
+        resolved_model = str(model_name or OPENAI_REDFLAG_MODEL)
+        return {"redFlags": resolved_model, "warningsAndGreenFlags": resolved_model}
+
     def get_red_flag_analysis(self, request_id: str, listing_id: str) -> dict[str, Any]:
         with self._request_lock(request_id):
             return self._build_red_flag_analysis_state_payload(request_id, self._resolve_listing_for_report(request_id, listing_id))
@@ -93,6 +97,7 @@ class ServiceAnalysisMixin:
         analysis = normalized.get("analysis")
         if isinstance(analysis, dict):
             normalized["analysis"] = {**analysis, "redFlags": [str(value).strip() for value in analysis.get("redFlags", []) if str(value).strip()], "warnings": [str(value).strip() for value in analysis.get("warnings", []) if str(value).strip()], "greenFlags": [str(value).strip() for value in analysis.get("greenFlags", []) if str(value).strip()], "webSearchUsed": bool(analysis.get("webSearchUsed"))}
+            normalized["models"] = normalized.get("models") if isinstance(normalized.get("models"), dict) else self._default_red_flag_models(normalized.get("model"))
         return normalized
 
     def _reserve_analysis_run(self, request_id: str, canonical_listing_id: str) -> str:
@@ -149,7 +154,7 @@ class ServiceAnalysisMixin:
             analysis = self.red_flag_analyzer(analysis_job["api_key"], model_input, analysis_job["cancel_event"])
             if analysis_job["cancel_event"].is_set():
                 return self._write_latest_red_flag_analysis_status(analysis_job, status_path, {"status": ANALYSIS_STATUS_CANCELLED, "error": "Red-flag analysis was cancelled."})
-            payload = {"listingId": analysis_job["listing"]["id"], "listingUrl": analysis_job["listing"].get("url"), "listingTitle": analysis_job["listing"].get("title"), "retrievedAt": utc_now(), "status": ANALYSIS_STATUS_SUCCESS, "error": None, "model": OPENAI_REDFLAG_MODEL, "reportReady": bool(model_input.get("vehicleReport")), "reportSnapshotId": model_input.get("reportSnapshotId"), "apiKeyConfigured": True, "analysis": {"summary": str(analysis.get("summary") or "").strip(), "redFlags": [str(value).strip() for value in analysis.get("redFlags", []) if str(value).strip()], "warnings": [str(value).strip() for value in analysis.get("warnings", []) if str(value).strip()], "greenFlags": [str(value).strip() for value in analysis.get("greenFlags", []) if str(value).strip()], "webSearchUsed": bool(analysis.get("webSearchUsed"))}}
+            payload = {"listingId": analysis_job["listing"]["id"], "listingUrl": analysis_job["listing"].get("url"), "listingTitle": analysis_job["listing"].get("title"), "retrievedAt": utc_now(), "status": ANALYSIS_STATUS_SUCCESS, "error": None, "model": OPENAI_REDFLAG_MODEL, "models": analysis.get("models") if isinstance(analysis.get("models"), dict) else self._default_red_flag_models(), "reportReady": bool(model_input.get("vehicleReport")), "reportSnapshotId": model_input.get("reportSnapshotId"), "apiKeyConfigured": True, "analysis": {"summary": str(analysis.get("summary") or "").strip(), "redFlags": [str(value).strip() for value in analysis.get("redFlags", []) if str(value).strip()], "warnings": [str(value).strip() for value in analysis.get("warnings", []) if str(value).strip()], "greenFlags": [str(value).strip() for value in analysis.get("greenFlags", []) if str(value).strip()], "webSearchUsed": bool(analysis.get("webSearchUsed"))}}
             current_report_snapshot_id = _build_report_snapshot_id(_read_json(self._vehicle_report_path(analysis_job["request_id"], analysis_job["listing_id"]), None))
             if self._is_latest_red_flag_run(analysis_job["request_id"], analysis_job["listing_id"], analysis_job["run_id"]) and current_report_snapshot_id == model_input.get("reportSnapshotId"):
                 _write_json(cache_path, payload)

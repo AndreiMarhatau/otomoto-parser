@@ -164,6 +164,7 @@ describe("VehicleReportModal", () => {
       />,
     );
 
+    expect(screen.getByText("GPT-5.4-mini reviews the listing, the detail page, and the report when it is ready.")).toBeTruthy();
     expect(screen.getByText("Looks acceptable.")).toBeTruthy();
     expect(screen.getByText("Mileage mismatch")).toBeTruthy();
     expect(screen.getByText("Used web search for VIN-related checks.")).toBeTruthy();

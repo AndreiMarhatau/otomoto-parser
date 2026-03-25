@@ -213,6 +213,7 @@ def _fake_red_flag_analyzer(_: str, model_input: dict[str, Any], cancel_event: t
             "The listing page, search result, and vehicle report align on the core vehicle identity.",
         ],
         "webSearchUsed": True,
+        "models": {"redFlags": "gpt-5.4-mini", "warningsAndGreenFlags": "gpt-5.4-mini"},
     }
 
 
@@ -249,6 +250,7 @@ def _fake_red_flag_analyzer_without_report(_: str, model_input: dict[str, Any], 
         "warnings": ["The analysis had to rely on the listing alone because no vehicle report was cached."],
         "greenFlags": [],
         "webSearchUsed": False,
+        "models": {"redFlags": "gpt-5.4-mini", "warningsAndGreenFlags": "gpt-5.4-mini"},
     }
 
 
@@ -1084,7 +1086,8 @@ def test_red_flag_analysis_endpoint_runs_with_listing_page_report_and_web_search
         ]
         assert item["analysis"]["webSearchUsed"] is True
         assert item["reportReady"] is True
-        assert item["model"] == "gpt-5.4"
+        assert item["model"] == "gpt-5.4-mini"
+        assert item["models"] == {"redFlags": "gpt-5.4-mini", "warningsAndGreenFlags": "gpt-5.4-mini"}
 
 
 def test_red_flag_analysis_becomes_stale_after_report_is_fetched(monkeypatch, tmp_path: Path) -> None:
@@ -1241,6 +1244,7 @@ def test_red_flag_analysis_normalizes_legacy_cached_analysis(monkeypatch, tmp_pa
         assert item["analysis"]["warnings"] == []
         assert item["analysis"]["greenFlags"] == []
         assert item["analysis"]["webSearchUsed"] is True
+        assert item["models"] == {"redFlags": "gpt-5.4", "warningsAndGreenFlags": "gpt-5.4"}
 
 
 def test_red_flag_analysis_can_be_cancelled(monkeypatch, tmp_path: Path) -> None:
@@ -1264,7 +1268,7 @@ def test_red_flag_analysis_can_be_cancelled(monkeypatch, tmp_path: Path) -> None
 
         start_response = client.post(f"/api/requests/{request_id}/listings/4/red-flags")
         assert start_response.status_code == 200
-        _wait_for_red_flag_progress(client, request_id, "4", "Running GPT-5.4 red-flag analysis...")
+        _wait_for_red_flag_progress(client, request_id, "4", "Running GPT-5.4-mini red-flag analysis...")
 
         cancel_response = client.post(f"/api/requests/{request_id}/listings/4/red-flags/cancel")
         assert cancel_response.status_code == 200
@@ -1303,7 +1307,7 @@ def test_red_flag_analysis_can_rerun_after_cancel_finishes(monkeypatch, tmp_path
         assert report_response.status_code == 200
 
         assert client.post(f"/api/requests/{request_id}/listings/4/red-flags").status_code == 200
-        _wait_for_red_flag_progress(client, request_id, "4", "Running GPT-5.4 red-flag analysis...")
+        _wait_for_red_flag_progress(client, request_id, "4", "Running GPT-5.4-mini red-flag analysis...")
         cancel_response = client.post(f"/api/requests/{request_id}/listings/4/red-flags/cancel")
         assert cancel_response.status_code == 200
         service.red_flag_analyzer = _fake_red_flag_analyzer
@@ -1337,7 +1341,7 @@ def test_red_flag_analysis_cannot_restart_while_previous_run_is_cancelling(monke
         _wait_until_ready(client, request_id)
 
         assert client.post(f"/api/requests/{request_id}/listings/4/red-flags").status_code == 200
-        _wait_for_red_flag_progress(client, request_id, "4", "Running GPT-5.4 red-flag analysis...")
+        _wait_for_red_flag_progress(client, request_id, "4", "Running GPT-5.4-mini red-flag analysis...")
 
         cancel_response = client.post(f"/api/requests/{request_id}/listings/4/red-flags/cancel")
         assert cancel_response.status_code == 200
@@ -1368,7 +1372,7 @@ def test_delete_request_is_blocked_while_red_flag_analysis_is_running(monkeypatc
         ready_item = _wait_until_ready(client, request_id)
 
         assert client.post(f"/api/requests/{request_id}/listings/4/red-flags").status_code == 200
-        _wait_for_red_flag_progress(client, request_id, "4", "Running GPT-5.4 red-flag analysis...")
+        _wait_for_red_flag_progress(client, request_id, "4", "Running GPT-5.4-mini red-flag analysis...")
 
         delete_response = client.delete(f"/api/requests/{request_id}")
         assert delete_response.status_code == 409
@@ -1413,7 +1417,7 @@ def test_vehicle_report_regenerate_is_blocked_while_red_flag_analysis_is_running
 
         analysis_start = client.post(f"/api/requests/{request_id}/listings/4/red-flags")
         assert analysis_start.status_code == 200
-        _wait_for_red_flag_progress(client, request_id, "4", "Running GPT-5.4 red-flag analysis...")
+        _wait_for_red_flag_progress(client, request_id, "4", "Running GPT-5.4-mini red-flag analysis...")
 
         regenerate_response = client.post(f"/api/requests/{request_id}/listings/4/vehicle-report/regenerate")
         assert regenerate_response.status_code == 502
