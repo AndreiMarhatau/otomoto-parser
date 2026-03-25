@@ -54,7 +54,7 @@ REPORT_PROGRESS_FETCHING_REPORT = "Fetching vehicle history report..."
 DEFAULT_REPORT_LOOKUP_DAYS_BACK = 120
 DEFAULT_REPORT_LOOKUP_DAYS_FORWARD = 14
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
-OPENAI_REDFLAG_MODEL = "gpt-5.4-mini"
+OPENAI_REDFLAG_MODEL = "gpt-5.4"
 STRICT_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 ANALYSIS_STATUS_IDLE = "idle"
@@ -69,7 +69,7 @@ TERMINAL_ANALYSIS_STATUSES = {
     ANALYSIS_STATUS_CANCELLED,
 }
 ANALYSIS_PROGRESS_COLLECTING_DATA = "Collecting listing data..."
-ANALYSIS_PROGRESS_CALLING_MODEL = "Running GPT-5.4-mini red-flag analysis..."
+ANALYSIS_PROGRESS_CALLING_MODEL = "Running GPT-5.4 red-flag analysis..."
 
 ParserRunner = Callable[..., Any]
 ListingPageFetcher = Callable[..., dict[str, Any]]

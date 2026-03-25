@@ -28,9 +28,9 @@ class _FakeResponse:
 def test_request_payload_contains_expected_model_tools_and_input() -> None:
     payload = helpers._request_payload({"listingId": "abc", "notes": {"vehicleReportReady": True}})
 
-    assert payload["model"] == "gpt-5.4-mini"
+    assert payload["model"] == "gpt-5.4"
     assert payload["tools"] == [{"type": "web_search"}]
-    assert payload["reasoning"] == {"effort": "medium"}
+    assert payload["reasoning"] == {"effort": "low"}
     assert payload["input"][0]["role"] == "system"
     assert "strict JSON" in payload["input"][0]["content"][0]["text"]
     assert json.loads(payload["input"][1]["content"][0]["text"]) == {"listingId": "abc", "notes": {"vehicleReportReady": True}}
@@ -60,7 +60,7 @@ def test_extract_and_parse_analysis_json_from_nested_output() -> None:
         "warnings": ["docs"],
         "greenFlags": ["service history"],
         "webSearchUsed": True,
-        "models": {"redFlags": "gpt-5.4-mini", "warningsAndGreenFlags": "gpt-5.4-mini"},
+        "models": {"redFlags": "gpt-5.4", "warningsAndGreenFlags": "gpt-5.4"},
     }
 
 
@@ -152,5 +152,5 @@ def test_default_red_flag_analyzer_returns_normalized_payload(monkeypatch) -> No
         "warnings": ["docs"],
         "greenFlags": ["one-owner"],
         "webSearchUsed": True,
-        "models": {"redFlags": "gpt-5.4-mini", "warningsAndGreenFlags": "gpt-5.4-mini"},
+        "models": {"redFlags": "gpt-5.4", "warningsAndGreenFlags": "gpt-5.4"},
     }
