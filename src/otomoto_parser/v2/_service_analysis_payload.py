@@ -3,33 +3,17 @@ from __future__ import annotations
 from typing import Any
 
 from ._service_listing_helpers import _location_display, _param_display, _param_map, _price_evaluation_display, _price_fields
-
-_LISTING_PARAMETER_FIELDS = (
-    ("make", "make"),
-    ("model", "model"),
-    ("version", "version"),
-    ("generation", "generation"),
-    ("year", "year"),
-    ("mileage", "mileage"),
-    ("fuel_type", "fuelType"),
-    ("gearbox", "gearbox"),
-    ("body_type", "bodyType"),
-    ("engine_capacity", "engineCapacity"),
-    ("engine_power", "enginePower"),
-    ("drive", "drive"),
-    ("doors_no", "doors"),
-    ("seats_no", "seats"),
-    ("color", "color"),
-    ("registered", "registered"),
-    ("country_origin", "countryOfOrigin"),
-    ("condition", "condition"),
-    ("origin_country", "countryOfOrigin"),
+from ._service_analysis_payload_support import (
+    _IDENTIFIER_PARAMETER_ALIASES,
+    _LISTING_PARAMETER_FIELDS,
+    _MAX_DESCRIPTION_LENGTH,
+    _MAX_SHORT_DESCRIPTION_LENGTH,
+    _MAX_TIMELINE_EVENTS,
+    _MAX_TIMELINE_EVENT_FIELDS,
+    _source_status_payload,
+    _technical_data_root,
+    _technical_summary_payload,
 )
-_IDENTIFIER_PARAMETER_ALIASES = {"vin": "vin", "registration": "registrationNumber", "date_registration": "firstRegistrationDate"}
-_MAX_SHORT_DESCRIPTION_LENGTH = 600
-_MAX_DESCRIPTION_LENGTH = 3000
-_MAX_TIMELINE_EVENTS = 8
-_MAX_TIMELINE_EVENT_FIELDS = ("date", "type", "label", "mileage", "country", "source")
 
 def build_listing_payload(listing: dict[str, Any], record: dict[str, Any], listing_page: dict[str, Any] | None) -> dict[str, Any]:
     node = record.get("node") if isinstance(record.get("node"), dict) else {}
@@ -74,8 +58,8 @@ def build_vehicle_report_payload(report_payload: dict[str, Any] | None) -> dict[
         {
             "identity": report_payload.get("identity"),
             "summary": report_payload.get("summary"),
-            "sourceStatus": _source_status_payload(report_payload, report),
-            "technicalData": _technical_summary_payload(basic_data, ownership_history),
+            "sourceStatus": _source_status_payload(report_payload, report, _compact_dict),
+            "technicalData": _technical_summary_payload(basic_data, ownership_history, _compact_dict),
             "timeline": _timeline_payload(report.get("timeline_data")),
             "autodnaSummary": report.get("autodna_data", {}).get("summary") if isinstance(report.get("autodna_data"), dict) else None,
             "carfaxSummary": report.get("carfax_data", {}).get("summary") if isinstance(report.get("carfax_data"), dict) else None,
@@ -186,29 +170,3 @@ def _timeline_payload(timeline_data: Any) -> dict[str, Any] | None:
             if compact_event:
                 compact_events.append(compact_event)
     return _compact_dict({"eventCount": len(events), "eventTypes": event_types, "events": compact_events})
-
-def _technical_data_root(report: dict[str, Any]) -> dict[str, Any]:
-    technical_data = report.get("technical_data")
-    if not isinstance(technical_data, dict):
-        return {}
-    return technical_data.get("technicalData") if isinstance(technical_data.get("technicalData"), dict) else {}
-
-def _source_status_payload(report_payload: dict[str, Any], report: dict[str, Any]) -> dict[str, Any]:
-    summary = report_payload.get("summary") if isinstance(report_payload.get("summary"), dict) else {}
-    return _compact_dict(
-        {
-            "apiVersion": report.get("api_version"),
-            "autodnaAvailable": summary.get("autodnaAvailable"),
-            "carfaxAvailable": summary.get("carfaxAvailable"),
-            "autodnaUnavailable": summary.get("autodnaUnavailable"),
-            "carfaxUnavailable": summary.get("carfaxUnavailable"),
-        }
-    )
-
-def _technical_summary_payload(basic_data: dict[str, Any], ownership_history: dict[str, Any]) -> dict[str, Any]:
-    return _compact_dict(
-        {
-            "basicData": _compact_dict({"make": basic_data.get("make"), "model": basic_data.get("model"), "type": basic_data.get("type"), "modelYear": basic_data.get("modelYear"), "fuel": basic_data.get("fuel"), "engineCapacity": basic_data.get("engineCapacity"), "enginePower": basic_data.get("enginePower"), "bodyType": basic_data.get("bodyType"), "color": basic_data.get("color")}),
-            "ownershipHistory": _compact_dict({"numberOfOwners": ownership_history.get("numberOfOwners"), "numberOfCoowners": ownership_history.get("numberOfCoowners"), "dateOfLastOwnershipChange": ownership_history.get("dateOfLastOwnershipChange")}),
-        }
-    )
