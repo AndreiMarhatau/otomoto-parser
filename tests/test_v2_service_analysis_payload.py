@@ -41,25 +41,26 @@ def test_build_listing_payload_prefers_listing_values_and_compacts_fields() -> N
     )
 
     assert payload == {
-        "id": "4",
-        "url": "https://example.com/listing",
         "title": "Trusted title",
+        "url": "https://example.com/listing",
         "location": "Trusted location",
         "createdAt": "2026-03-12T13:08:23Z",
-        "price": {"amount": 43000, "currency": "PLN", "evaluation": "IN"},
-        "seller": {"id": "dealer-1", "name": "Dealer", "websiteUrl": "https://dealer.example"},
-        "dataVerified": True,
-        "shortDescription": "compact me",
-        "description": "Detailed description",
-        "identifiers": {"vin": "SEARCH-VIN"},
-        "parameters": {
+        "price": {"amount": 43000, "currency": "PLN", "marketPriceAssessment": "IN"},
+        "seller": {"name": "Dealer", "websiteUrl": "https://dealer.example"},
+        "listingContent": {
+            "dataVerified": True,
+            "badges": ["ASO"],
+            "shortDescription": "compact me",
+            "description": "Detailed description",
+        },
+        "vehicle": {
+            "identifiers": {"vin": "SEARCH-VIN"},
             "make": "Mercedes-Benz",
             "model": "CLA",
             "version": "250",
             "drive": "4x4",
             "color": "White",
         },
-        "badges": ["ASO"],
     }
 
 
@@ -79,7 +80,7 @@ def test_build_listing_payload_uses_detail_identifier_only_when_not_encrypted_li
         },
     )
 
-    assert payload["identifiers"] == {
+    assert payload["vehicle"]["identifiers"] == {
         "registrationNumber": "DLU8613F",
         "firstRegistrationDate": "2014-01-01",
     }
@@ -92,10 +93,43 @@ def test_build_listing_payload_truncates_long_description_and_ignores_invalid_ti
         {"description": "x" * 3010, "parametersDict": {"model": {"values": ["bad", {"label": "CLA"}]}}},
     )
 
-    assert payload["shortDescription"] == "abcd"
-    assert payload["description"] == ("x" * 2997) + "..."
-    assert payload["parameters"] == {"model": "CLA"}
-    assert "badges" not in payload
+    assert payload["listingContent"]["shortDescription"] == "abcd"
+    assert payload["listingContent"]["description"] == ("x" * 2997) + "..."
+    assert payload["vehicle"] == {"model": "CLA"}
+    assert "badges" not in payload["listingContent"]
+
+
+def test_build_listing_payload_collapses_origin_fields_to_single_canonical_key() -> None:
+    payload = build_listing_payload(
+        {"id": "4"},
+        {"node": {"parameters": [{"key": "country_origin", "displayValue": "Poland"}]}},
+        {"parameters": [{"key": "origin_country", "displayValue": "Germany"}]},
+    )
+
+    assert payload["vehicle"]["countryOfOrigin"] == "Germany"
+    assert "originCountry" not in payload["vehicle"]
+
+
+def test_build_listing_payload_keeps_country_origin_when_origin_country_is_absent() -> None:
+    payload = build_listing_payload(
+        {"id": "4"},
+        {"node": {"parameters": [{"key": "country_origin", "displayValue": "Poland"}]}},
+        {"parameters": [{"key": "origin_country", "displayValue": ""}]},
+    )
+
+    assert payload["vehicle"]["countryOfOrigin"] == "Poland"
+    assert "originCountry" not in payload["vehicle"]
+
+
+def test_build_listing_payload_keeps_country_origin_from_parameters_dict_when_origin_country_is_absent() -> None:
+    payload = build_listing_payload(
+        {"id": "4"},
+        {"node": {"parameters": []}},
+        {"parametersDict": {"country_origin": {"displayValue": "Poland"}, "origin_country": {"displayValue": ""}}},
+    )
+
+    assert payload["vehicle"]["countryOfOrigin"] == "Poland"
+    assert "originCountry" not in payload["vehicle"]
 
 
 def test_build_vehicle_report_payload_compacts_report_and_limits_timeline() -> None:

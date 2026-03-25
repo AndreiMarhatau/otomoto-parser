@@ -26,14 +26,15 @@ class _FakeResponse:
 
 
 def test_request_payload_contains_expected_model_tools_and_input() -> None:
-    payload = helpers._request_payload({"listingId": "abc", "notes": {"vehicleReportReady": True}})
+    payload = helpers._request_payload({"analysisContext": {"vehicleReportAvailable": True}, "listing": {"title": "Example"}})
 
     assert payload["model"] == "gpt-5.4"
     assert payload["tools"] == [{"type": "web_search"}]
     assert payload["reasoning"] == {"effort": "low"}
     assert payload["input"][0]["role"] == "system"
     assert "strict JSON" in payload["input"][0]["content"][0]["text"]
-    assert json.loads(payload["input"][1]["content"][0]["text"]) == {"listingId": "abc", "notes": {"vehicleReportReady": True}}
+    assert "Red flags mean confirmed serious negative facts" in payload["input"][0]["content"][0]["text"]
+    assert json.loads(payload["input"][1]["content"][0]["text"]) == {"analysisContext": {"vehicleReportAvailable": True}, "listing": {"title": "Example"}}
 
 
 def test_extract_and_parse_analysis_json_from_nested_output() -> None:

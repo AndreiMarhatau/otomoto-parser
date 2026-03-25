@@ -3,13 +3,17 @@ from __future__ import annotations
 from typing import Any
 
 from ._service_listing_helpers import _location_display, _param_display, _param_map, _price_evaluation_display, _price_fields
-
-_LISTING_PARAMETER_KEYS = ("make", "model", "version", "generation", "year", "mileage", "fuel_type", "gearbox", "body_type", "engine_capacity", "engine_power", "drive", "doors_no", "seats_no", "color", "registered", "country_origin", "condition", "origin_country")
-_IDENTIFIER_PARAMETER_ALIASES = {"vin": "vin", "registration": "registrationNumber", "date_registration": "firstRegistrationDate"}
-_MAX_SHORT_DESCRIPTION_LENGTH = 600
-_MAX_DESCRIPTION_LENGTH = 3000
-_MAX_TIMELINE_EVENTS = 8
-_MAX_TIMELINE_EVENT_FIELDS = ("date", "type", "label", "mileage", "country", "source")
+from ._service_analysis_payload_support import (
+    _IDENTIFIER_PARAMETER_ALIASES,
+    _LISTING_PARAMETER_FIELDS,
+    _MAX_DESCRIPTION_LENGTH,
+    _MAX_SHORT_DESCRIPTION_LENGTH,
+    _MAX_TIMELINE_EVENTS,
+    _MAX_TIMELINE_EVENT_FIELDS,
+    _source_status_payload,
+    _technical_data_root,
+    _technical_summary_payload,
+)
 
 def build_listing_payload(listing: dict[str, Any], record: dict[str, Any], listing_page: dict[str, Any] | None) -> dict[str, Any]:
     node = record.get("node") if isinstance(record.get("node"), dict) else {}
@@ -20,19 +24,26 @@ def build_listing_payload(listing: dict[str, Any], record: dict[str, Any], listi
     merged_parameters.update(_selected_detail_parameter_payload((listing_page or {}).get("parametersDict")))
     return _compact_dict(
         {
-            "id": listing.get("id"),
-            "url": listing.get("url"),
             "title": listing.get("title") or node.get("title") or (listing_page or {}).get("title"),
+            "url": listing.get("url"),
             "location": listing.get("location") or _location_display(node.get("location")) or _location_display((listing_page or {}).get("location")),
             "createdAt": node.get("createdAt") or (listing_page or {}).get("createdAt"),
             "price": _listing_price_payload(node),
             "seller": _seller_payload(node.get("sellerLink")) or _seller_payload((listing_page or {}).get("sellerLink")),
-            "dataVerified": node.get("cepikVerified"),
-            "shortDescription": _truncate_text(node.get("shortDescription"), _MAX_SHORT_DESCRIPTION_LENGTH),
-            "description": _truncate_text((listing_page or {}).get("description"), _MAX_DESCRIPTION_LENGTH),
-            "identifiers": _identifier_payload(listing, search_parameters, detail_parameters),
-            "parameters": merged_parameters,
-            "badges": _listing_badges(node.get("valueAddedServices")),
+            "listingContent": _compact_dict(
+                {
+                    "dataVerified": node.get("cepikVerified"),
+                    "badges": _listing_badges(node.get("valueAddedServices")),
+                    "shortDescription": _truncate_text(node.get("shortDescription"), _MAX_SHORT_DESCRIPTION_LENGTH),
+                    "description": _truncate_text((listing_page or {}).get("description"), _MAX_DESCRIPTION_LENGTH),
+                }
+            ),
+            "vehicle": _compact_dict(
+                {
+                    "identifiers": _identifier_payload(listing, search_parameters, detail_parameters),
+                    **merged_parameters,
+                }
+            ),
         }
     )
 
@@ -47,8 +58,8 @@ def build_vehicle_report_payload(report_payload: dict[str, Any] | None) -> dict[
         {
             "identity": report_payload.get("identity"),
             "summary": report_payload.get("summary"),
-            "sourceStatus": _source_status_payload(report_payload, report),
-            "technicalData": _technical_summary_payload(basic_data, ownership_history),
+            "sourceStatus": _source_status_payload(report_payload, report, _compact_dict),
+            "technicalData": _technical_summary_payload(basic_data, ownership_history, _compact_dict),
             "timeline": _timeline_payload(report.get("timeline_data")),
             "autodnaSummary": report.get("autodna_data", {}).get("summary") if isinstance(report.get("autodna_data"), dict) else None,
             "carfaxSummary": report.get("carfax_data", {}).get("summary") if isinstance(report.get("carfax_data"), dict) else None,
@@ -70,12 +81,22 @@ def _truncate_text(value: Any, limit: int) -> str | None:
 
 def _selected_parameter_payload(parameters: list[dict[str, Any]] | None) -> dict[str, Any]:
     parameter_map = _param_map(parameters)
-    return _compact_dict({key: _param_display(parameter_map, key) for key in _LISTING_PARAMETER_KEYS})
+    selected: dict[str, Any] = {}
+    for source_key, target_key in _LISTING_PARAMETER_FIELDS:
+        value = _param_display(parameter_map, source_key)
+        if value not in (None, ""):
+            selected[target_key] = value
+    return _compact_dict(selected)
 
 def _selected_detail_parameter_payload(parameters_dict: Any) -> dict[str, Any]:
     if not isinstance(parameters_dict, dict):
         return {}
-    return _compact_dict({key: _parameter_value_from_detail_entry(parameters_dict.get(key)) for key in _LISTING_PARAMETER_KEYS})
+    selected: dict[str, Any] = {}
+    for source_key, target_key in _LISTING_PARAMETER_FIELDS:
+        value = _parameter_value_from_detail_entry(parameters_dict.get(source_key))
+        if value not in (None, ""):
+            selected[target_key] = value
+    return _compact_dict(selected)
 
 def _parameter_value_from_detail_entry(entry: Any) -> str | None:
     if not isinstance(entry, dict):
@@ -115,14 +136,14 @@ def _identifier_payload(
 
 def _listing_price_payload(node: dict[str, Any]) -> dict[str, Any]:
     amount, currency = _price_fields(node)
-    return _compact_dict({"amount": amount, "currency": currency, "evaluation": _price_evaluation_display(node.get("priceEvaluation"))})
+    return _compact_dict({"amount": amount, "currency": currency, "marketPriceAssessment": _price_evaluation_display(node.get("priceEvaluation"))})
 
-def _seller_payload(raw_seller: Any) -> dict[str, Any] | str | None:
+def _seller_payload(raw_seller: Any) -> dict[str, Any] | None:
     if isinstance(raw_seller, str) and raw_seller:
-        return raw_seller
+        return {"websiteUrl": raw_seller}
     if not isinstance(raw_seller, dict):
         return None
-    return _compact_dict({key: raw_seller.get(key) for key in ("id", "name", "websiteUrl", "isCreditIntermediary")})
+    return _compact_dict({key: raw_seller.get(key) for key in ("name", "websiteUrl", "isCreditIntermediary")})
 
 def _listing_badges(raw_badges: Any) -> list[str]:
     if not isinstance(raw_badges, list):
@@ -149,29 +170,3 @@ def _timeline_payload(timeline_data: Any) -> dict[str, Any] | None:
             if compact_event:
                 compact_events.append(compact_event)
     return _compact_dict({"eventCount": len(events), "eventTypes": event_types, "events": compact_events})
-
-def _technical_data_root(report: dict[str, Any]) -> dict[str, Any]:
-    technical_data = report.get("technical_data")
-    if not isinstance(technical_data, dict):
-        return {}
-    return technical_data.get("technicalData") if isinstance(technical_data.get("technicalData"), dict) else {}
-
-def _source_status_payload(report_payload: dict[str, Any], report: dict[str, Any]) -> dict[str, Any]:
-    summary = report_payload.get("summary") if isinstance(report_payload.get("summary"), dict) else {}
-    return _compact_dict(
-        {
-            "apiVersion": report.get("api_version"),
-            "autodnaAvailable": summary.get("autodnaAvailable"),
-            "carfaxAvailable": summary.get("carfaxAvailable"),
-            "autodnaUnavailable": summary.get("autodnaUnavailable"),
-            "carfaxUnavailable": summary.get("carfaxUnavailable"),
-        }
-    )
-
-def _technical_summary_payload(basic_data: dict[str, Any], ownership_history: dict[str, Any]) -> dict[str, Any]:
-    return _compact_dict(
-        {
-            "basicData": _compact_dict({"make": basic_data.get("make"), "model": basic_data.get("model"), "type": basic_data.get("type"), "modelYear": basic_data.get("modelYear"), "fuel": basic_data.get("fuel"), "engineCapacity": basic_data.get("engineCapacity"), "enginePower": basic_data.get("enginePower"), "bodyType": basic_data.get("bodyType"), "color": basic_data.get("color")}),
-            "ownershipHistory": _compact_dict({"numberOfOwners": ownership_history.get("numberOfOwners"), "numberOfCoowners": ownership_history.get("numberOfCoowners"), "dateOfLastOwnershipChange": ownership_history.get("dateOfLastOwnershipChange")}),
-        }
-    )

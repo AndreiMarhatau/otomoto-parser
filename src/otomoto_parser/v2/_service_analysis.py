@@ -128,22 +128,31 @@ class ServiceAnalysisMixin:
         if self._is_latest_red_flag_run(run_context["request_id"], run_context["listing_id"], run_context["run_id"]):
             self._write_red_flag_analysis_status(status_path, {**status_data, "run_id": run_context["run_id"]})
 
-    def _build_red_flag_model_input(self, request_id: str, listing_id: str) -> dict[str, Any]:
+    def _build_red_flag_model_input_state(self, request_id: str, listing_id: str) -> tuple[dict[str, Any], str]:
         listing = self._resolve_listing_for_report(request_id, listing_id)
         record = self._find_listing_record(request_id, listing_id)
         listing_page = self.listing_page_fetcher(listing.get("url"), timeout_s=float(self.parser_options.get("request_timeout_s", 45.0))) if isinstance(listing.get("url"), str) and listing.get("url") else None
         report_payload = _read_json(self._vehicle_report_path(request_id, str(listing_id)), None)
-        report_snapshot_id = _build_report_snapshot_id(report_payload)
-        return {
-            "listing": build_listing_payload(listing, record, listing_page if isinstance(listing_page, dict) else None),
-            "vehicleReport": build_vehicle_report_payload(report_payload),
-            "reportSnapshotId": report_snapshot_id,
-            "notes": {
-                "vehicleReportReady": report_payload is not None,
-                "reportSnapshotId": report_snapshot_id,
-                "generatedAt": utc_now(),
+        return (
+            {
+                "analysisContext": {
+                    "scope": "Evaluate this exact car listing and this exact car only. Do not use generic model reputation as a flag unless the listing or exact-vehicle evidence supports it.",
+                    "flagSemantics": {
+                        "redFlags": "Confirmed serious negative facts about this exact car or listing that materially increase buying risk.",
+                        "warnings": "Things that need verification or careful attention before buying, including uncertainty, missing proof, or inconsistencies.",
+                        "greenFlags": "Confirmed positive facts about this exact car or listing.",
+                    },
+                    "vehicleReportAvailable": report_payload is not None,
+                },
+                "listing": build_listing_payload(listing, record, listing_page if isinstance(listing_page, dict) else None),
+                "vehicleReport": build_vehicle_report_payload(report_payload),
             },
-        }
+            _build_report_snapshot_id(report_payload),
+        )
+
+    def _build_red_flag_model_input(self, request_id: str, listing_id: str) -> dict[str, Any]:
+        model_input, _report_snapshot_id = self._build_red_flag_model_input_state(request_id, listing_id)
+        return model_input
 
     def _start_red_flag_analysis_job(self, analysis_job: dict[str, Any]) -> bool:
         future_key = (analysis_job["request_id"], analysis_job["listing_id"], analysis_job["run_id"])
@@ -157,16 +166,16 @@ class ServiceAnalysisMixin:
         status_path = self._red_flag_status_path(analysis_job["request_id"], analysis_job["listing_id"])
         cache_path = self._red_flag_analysis_path(analysis_job["request_id"], analysis_job["listing_id"])
         try:
-            model_input = self._build_red_flag_model_input(analysis_job["request_id"], analysis_job["listing_id"])
+            model_input, expected_report_snapshot_id = self._build_red_flag_model_input_state(analysis_job["request_id"], analysis_job["listing_id"])
             if analysis_job["cancel_event"].is_set():
                 return self._write_latest_red_flag_analysis_status(analysis_job, status_path, {"status": ANALYSIS_STATUS_CANCELLED, "error": "Red-flag analysis was cancelled."})
             self._write_latest_red_flag_analysis_status(analysis_job, status_path, {"status": ANALYSIS_STATUS_RUNNING, "progress_message": ANALYSIS_PROGRESS_CALLING_MODEL})
             analysis = self.red_flag_analyzer(analysis_job["api_key"], model_input, analysis_job["cancel_event"])
             if analysis_job["cancel_event"].is_set():
                 return self._write_latest_red_flag_analysis_status(analysis_job, status_path, {"status": ANALYSIS_STATUS_CANCELLED, "error": "Red-flag analysis was cancelled."})
-            payload = {"listingId": analysis_job["listing"]["id"], "listingUrl": analysis_job["listing"].get("url"), "listingTitle": analysis_job["listing"].get("title"), "retrievedAt": utc_now(), "status": ANALYSIS_STATUS_SUCCESS, "error": None, "model": OPENAI_REDFLAG_MODEL, "models": analysis.get("models") if isinstance(analysis.get("models"), dict) else self._default_red_flag_models(), "reportReady": bool(model_input.get("vehicleReport")), "reportSnapshotId": model_input.get("reportSnapshotId"), "apiKeyConfigured": True, "analysis": {"summary": str(analysis.get("summary") or "").strip(), "redFlags": [str(value).strip() for value in analysis.get("redFlags", []) if str(value).strip()], "warnings": [str(value).strip() for value in analysis.get("warnings", []) if str(value).strip()], "greenFlags": [str(value).strip() for value in analysis.get("greenFlags", []) if str(value).strip()], "webSearchUsed": bool(analysis.get("webSearchUsed"))}}
+            payload = {"listingId": analysis_job["listing"]["id"], "listingUrl": analysis_job["listing"].get("url"), "listingTitle": analysis_job["listing"].get("title"), "retrievedAt": utc_now(), "status": ANALYSIS_STATUS_SUCCESS, "error": None, "model": OPENAI_REDFLAG_MODEL, "models": analysis.get("models") if isinstance(analysis.get("models"), dict) else self._default_red_flag_models(), "reportReady": bool(model_input.get("vehicleReport")), "reportSnapshotId": expected_report_snapshot_id, "apiKeyConfigured": True, "analysis": {"summary": str(analysis.get("summary") or "").strip(), "redFlags": [str(value).strip() for value in analysis.get("redFlags", []) if str(value).strip()], "warnings": [str(value).strip() for value in analysis.get("warnings", []) if str(value).strip()], "greenFlags": [str(value).strip() for value in analysis.get("greenFlags", []) if str(value).strip()], "webSearchUsed": bool(analysis.get("webSearchUsed"))}}
             current_report_snapshot_id = _build_report_snapshot_id(_read_json(self._vehicle_report_path(analysis_job["request_id"], analysis_job["listing_id"]), None))
-            if self._is_latest_red_flag_run(analysis_job["request_id"], analysis_job["listing_id"], analysis_job["run_id"]) and current_report_snapshot_id == model_input.get("reportSnapshotId"):
+            if self._is_latest_red_flag_run(analysis_job["request_id"], analysis_job["listing_id"], analysis_job["run_id"]) and current_report_snapshot_id == expected_report_snapshot_id:
                 _write_json(cache_path, payload)
                 self._write_red_flag_analysis_status(status_path, {"status": ANALYSIS_STATUS_SUCCESS, "retrieved_at": payload["retrievedAt"], "run_id": analysis_job["run_id"]})
             elif self._is_latest_red_flag_run(analysis_job["request_id"], analysis_job["listing_id"], analysis_job["run_id"]):
