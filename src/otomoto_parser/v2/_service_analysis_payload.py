@@ -2,24 +2,16 @@ from __future__ import annotations
 
 from typing import Any
 
+from ._service_analysis_payload_common import _compact_dict
+from ._service_analysis_payload_support import _IDENTIFIER_PARAMETER_ALIASES, _LISTING_PARAMETER_FIELDS, _MAX_DESCRIPTION_LENGTH, _MAX_SHORT_DESCRIPTION_LENGTH
+from ._service_analysis_report_payload import build_vehicle_report_payload as _build_vehicle_report_payload
 from ._service_listing_helpers import _location_display, _param_display, _param_map, _price_evaluation_display, _price_fields
-from ._service_analysis_payload_support import (
-    _IDENTIFIER_PARAMETER_ALIASES,
-    _LISTING_PARAMETER_FIELDS,
-    _MAX_DESCRIPTION_LENGTH,
-    _MAX_SHORT_DESCRIPTION_LENGTH,
-    _MAX_TIMELINE_EVENTS,
-    _MAX_TIMELINE_EVENT_FIELDS,
-    _source_status_payload,
-    _technical_data_root,
-    _technical_summary_payload,
-)
+
 
 def build_listing_payload(listing: dict[str, Any], record: dict[str, Any], listing_page: dict[str, Any] | None) -> dict[str, Any]:
     node = record.get("node") if isinstance(record.get("node"), dict) else {}
     detail_parameters = listing_page.get("parameters") if isinstance(listing_page, dict) else None
-    search_parameters = node.get("parameters")
-    merged_parameters = _selected_parameter_payload(search_parameters)
+    merged_parameters = _selected_parameter_payload(node.get("parameters"))
     merged_parameters.update(_selected_parameter_payload(detail_parameters))
     merged_parameters.update(_selected_detail_parameter_payload((listing_page or {}).get("parametersDict")))
     return _compact_dict(
@@ -38,36 +30,14 @@ def build_listing_payload(listing: dict[str, Any], record: dict[str, Any], listi
                     "description": _truncate_text((listing_page or {}).get("description"), _MAX_DESCRIPTION_LENGTH),
                 }
             ),
-            "vehicle": _compact_dict(
-                {
-                    "identifiers": _identifier_payload(listing, search_parameters, detail_parameters),
-                    **merged_parameters,
-                }
-            ),
+            "vehicle": _compact_dict({"identifiers": _identifier_payload(listing, node.get("parameters"), detail_parameters), **merged_parameters}),
         }
     )
+
 
 def build_vehicle_report_payload(report_payload: dict[str, Any] | None) -> dict[str, Any] | None:
-    if not isinstance(report_payload, dict):
-        return None
-    report = report_payload.get("report") if isinstance(report_payload.get("report"), dict) else {}
-    technical_data_root = _technical_data_root(report)
-    basic_data = technical_data_root.get("basicData") if isinstance(technical_data_root.get("basicData"), dict) else {}
-    ownership_history = technical_data_root.get("ownershipHistory") if isinstance(technical_data_root.get("ownershipHistory"), dict) else {}
-    return _compact_dict(
-        {
-            "identity": report_payload.get("identity"),
-            "summary": report_payload.get("summary"),
-            "sourceStatus": _source_status_payload(report_payload, report, _compact_dict),
-            "technicalData": _technical_summary_payload(basic_data, ownership_history, _compact_dict),
-            "timeline": _timeline_payload(report.get("timeline_data")),
-            "autodnaSummary": report.get("autodna_data", {}).get("summary") if isinstance(report.get("autodna_data"), dict) else None,
-            "carfaxSummary": report.get("carfax_data", {}).get("summary") if isinstance(report.get("carfax_data"), dict) else None,
-        }
-    )
+    return _build_vehicle_report_payload(report_payload)
 
-def _compact_dict(value: dict[str, Any]) -> dict[str, Any]:
-    return {key: item for key, item in value.items() if item not in (None, "", [], {})}
 
 def _truncate_text(value: Any, limit: int) -> str | None:
     if not isinstance(value, str):
@@ -75,9 +45,8 @@ def _truncate_text(value: Any, limit: int) -> str | None:
     normalized = " ".join(value.split())
     if not normalized:
         return None
-    if len(normalized) <= limit:
-        return normalized
-    return normalized[:limit] if limit <= 3 else f"{normalized[: limit - 3].rstrip()}..."
+    return normalized if len(normalized) <= limit else normalized[:limit] if limit <= 3 else f"{normalized[: limit - 3].rstrip()}..."
+
 
 def _selected_parameter_payload(parameters: list[dict[str, Any]] | None) -> dict[str, Any]:
     parameter_map = _param_map(parameters)
@@ -88,6 +57,7 @@ def _selected_parameter_payload(parameters: list[dict[str, Any]] | None) -> dict
             selected[target_key] = value
     return _compact_dict(selected)
 
+
 def _selected_detail_parameter_payload(parameters_dict: Any) -> dict[str, Any]:
     if not isinstance(parameters_dict, dict):
         return {}
@@ -97,6 +67,7 @@ def _selected_detail_parameter_payload(parameters_dict: Any) -> dict[str, Any]:
         if value not in (None, ""):
             selected[target_key] = value
     return _compact_dict(selected)
+
 
 def _parameter_value_from_detail_entry(entry: Any) -> str | None:
     if not isinstance(entry, dict):
@@ -120,11 +91,8 @@ def _parameter_value_from_detail_entry(entry: Any) -> str | None:
                 return str(item["value"])
     return None
 
-def _identifier_payload(
-    listing: dict[str, Any],
-    search_parameters: list[dict[str, Any]] | None,
-    detail_parameters: list[dict[str, Any]] | None,
-) -> dict[str, Any]:
+
+def _identifier_payload(listing: dict[str, Any], search_parameters: list[dict[str, Any]] | None, detail_parameters: list[dict[str, Any]] | None) -> dict[str, Any]:
     search_parameter_map = _param_map(search_parameters)
     detail_parameter_map = _param_map(detail_parameters)
     identifiers: dict[str, Any] = {}
@@ -134,9 +102,11 @@ def _identifier_payload(
             identifiers[target_key] = value
     return identifiers
 
+
 def _listing_price_payload(node: dict[str, Any]) -> dict[str, Any]:
     amount, currency = _price_fields(node)
     return _compact_dict({"amount": amount, "currency": currency, "marketPriceAssessment": _price_evaluation_display(node.get("priceEvaluation"))})
+
 
 def _seller_payload(raw_seller: Any) -> dict[str, Any] | None:
     if isinstance(raw_seller, str) and raw_seller:
@@ -145,28 +115,8 @@ def _seller_payload(raw_seller: Any) -> dict[str, Any] | None:
         return None
     return _compact_dict({key: raw_seller.get(key) for key in ("name", "websiteUrl", "isCreditIntermediary")})
 
+
 def _listing_badges(raw_badges: Any) -> list[str]:
     if not isinstance(raw_badges, list):
         return []
     return [str(item.get("name")).strip() for item in raw_badges if isinstance(item, dict) and str(item.get("name") or "").strip()]
-
-def _timeline_payload(timeline_data: Any) -> dict[str, Any] | None:
-    if not isinstance(timeline_data, dict):
-        return None
-    timeline_root = timeline_data.get("timelineData")
-    events = timeline_root.get("events") if isinstance(timeline_root, dict) else None
-    if not isinstance(events, list):
-        return None
-    compact_events = []
-    event_types: list[str] = []
-    for index, event in enumerate(events):
-        if not isinstance(event, dict):
-            continue
-        event_type = event.get("type")
-        if isinstance(event_type, str) and event_type and event_type not in event_types:
-            event_types.append(event_type)
-        if index < _MAX_TIMELINE_EVENTS:
-            compact_event = _compact_dict({field: event.get(field) for field in _MAX_TIMELINE_EVENT_FIELDS})
-            if compact_event:
-                compact_events.append(compact_event)
-    return _compact_dict({"eventCount": len(events), "eventTypes": event_types, "events": compact_events})
