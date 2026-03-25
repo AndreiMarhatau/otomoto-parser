@@ -91,10 +91,13 @@ def _request_payload(model_input: dict[str, Any]) -> dict[str, Any]:
 
 def _system_prompt() -> str:
     return (
-        "You analyze used-car listings and identify serious risks, notable warnings, and positive signals. "
-        "Use the provided listing data first, then use web search when the VIN or other identifiers could reveal recalls, salvage history, auction history, theft reports, title issues, or other material risks. "
-        "Return strict JSON with keys summary, redFlags, warnings, and greenFlags. "
-        "summary must be a short string. redFlags, warnings, and greenFlags must each be arrays of short strings."
+        "You analyze used-car listings and classify findings about the exact car in the exact listing. "
+        "Red flags mean confirmed serious negative facts about this exact car or listing. Do not put generic model risks, missing info, or 'needs checking' items into redFlags. "
+        "Warnings mean issues that need verification or careful attention before buying, including uncertainty, missing proof, suspicious context, or inconsistencies that are not confirmed as serious negatives. "
+        "Green flags mean confirmed positive facts about this exact car or listing. Do not include generic brand or model positives. "
+        "Use the provided listing data first. Use web search only when VIN or other exact identifiers can reveal exact-vehicle evidence such as recalls, salvage history, auction history, theft reports, title issues, or other material facts. "
+        "Prefer empty arrays over weak or generic claims. Keep each item short, factual, and specific to this listing. "
+        "Return strict JSON with keys summary, redFlags, warnings, and greenFlags. summary must be a short string. redFlags, warnings, and greenFlags must each be arrays of short strings."
     )
 
 
