@@ -213,6 +213,7 @@ def _fake_red_flag_analyzer(_: str, model_input: dict[str, Any], cancel_event: t
             "The listing page, search result, and vehicle report align on the core vehicle identity.",
         ],
         "webSearchUsed": True,
+        "models": {"redFlags": "gpt-5.4", "warningsAndGreenFlags": "gpt-5.4-mini"},
     }
 
 
@@ -249,6 +250,7 @@ def _fake_red_flag_analyzer_without_report(_: str, model_input: dict[str, Any], 
         "warnings": ["The analysis had to rely on the listing alone because no vehicle report was cached."],
         "greenFlags": [],
         "webSearchUsed": False,
+        "models": {"redFlags": "gpt-5.4", "warningsAndGreenFlags": "gpt-5.4-mini"},
     }
 
 
@@ -1085,6 +1087,7 @@ def test_red_flag_analysis_endpoint_runs_with_listing_page_report_and_web_search
         assert item["analysis"]["webSearchUsed"] is True
         assert item["reportReady"] is True
         assert item["model"] == "gpt-5.4"
+        assert item["models"] == {"redFlags": "gpt-5.4", "warningsAndGreenFlags": "gpt-5.4-mini"}
 
 
 def test_red_flag_analysis_becomes_stale_after_report_is_fetched(monkeypatch, tmp_path: Path) -> None:
