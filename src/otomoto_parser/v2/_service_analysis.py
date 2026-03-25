@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ..v1.history_report import CancellationRequested
+from ._service_analysis_payload import build_listing_payload, build_vehicle_report_payload
 from ._service_common import (
     ANALYSIS_PROGRESS_CALLING_MODEL,
     ANALYSIS_PROGRESS_COLLECTING_DATA,
@@ -133,7 +134,16 @@ class ServiceAnalysisMixin:
         listing_page = self.listing_page_fetcher(listing.get("url"), timeout_s=float(self.parser_options.get("request_timeout_s", 45.0))) if isinstance(listing.get("url"), str) and listing.get("url") else None
         report_payload = _read_json(self._vehicle_report_path(request_id, str(listing_id)), None)
         report_snapshot_id = _build_report_snapshot_id(report_payload)
-        return {"listing": listing, "searchResultRaw": record, "listingPageRaw": listing_page, "vehicleReport": report_payload, "reportSnapshotId": report_snapshot_id, "notes": {"vehicleReportReady": report_payload is not None, "reportSnapshotId": report_snapshot_id, "generatedAt": utc_now()}}
+        return {
+            "listing": build_listing_payload(listing, record, listing_page if isinstance(listing_page, dict) else None),
+            "vehicleReport": build_vehicle_report_payload(report_payload),
+            "reportSnapshotId": report_snapshot_id,
+            "notes": {
+                "vehicleReportReady": report_payload is not None,
+                "reportSnapshotId": report_snapshot_id,
+                "generatedAt": utc_now(),
+            },
+        }
 
     def _start_red_flag_analysis_job(self, analysis_job: dict[str, Any]) -> bool:
         future_key = (analysis_job["request_id"], analysis_job["listing_id"], analysis_job["run_id"])

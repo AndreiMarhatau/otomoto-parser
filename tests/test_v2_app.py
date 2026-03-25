@@ -187,17 +187,26 @@ def _fake_listing_page(*_: object, **__: object) -> dict[str, Any]:
         "title": "Mercedes-Benz CLA 250",
         "sellerLink": "https://example.com/dealer",
         "description": "Detailed listing page payload",
+        "parameters": [
+            {"key": "model", "displayValue": "CLA", "value": "cla"},
+            {"key": "version", "displayValue": "250", "value": "250"},
+        ],
         "parametersDict": {
             "vin": {"values": [{"value": "encrypted-vin"}]},
             "registration": {"values": [{"value": "encrypted-reg"}]},
+            "date_registration": {"values": [{"value": "encrypted-date"}]},
         },
     }
 
 
 def _fake_red_flag_analyzer(_: str, model_input: dict[str, Any], cancel_event: threading.Event) -> dict[str, Any]:
-    assert model_input["searchResultRaw"]["item_id"] == "4"
-    assert model_input["listingPageRaw"]["title"] == "Mercedes-Benz CLA 250"
+    assert model_input["listing"]["id"] == "4"
+    assert model_input["listing"]["title"] == "To check"
+    assert model_input["listing"]["description"] == "Detailed listing page payload"
+    assert model_input["listing"]["parameters"]["model"] == "CLA"
+    assert model_input["listing"]["parameters"]["version"] == "250"
     assert model_input["vehicleReport"] is not None
+    assert "sourceStatus" in model_input["vehicleReport"]
     if cancel_event.is_set():
         raise service_module.CancellationRequested("cancelled")
     return {
@@ -242,6 +251,7 @@ def _slow_cancel_red_flag_analyzer(_: str, model_input: dict[str, Any], cancel_e
 def _fake_red_flag_analyzer_without_report(_: str, model_input: dict[str, Any], cancel_event: threading.Event) -> dict[str, Any]:
     assert model_input["vehicleReport"] is None
     assert model_input["reportSnapshotId"] == "missing"
+    assert model_input["listing"].get("identifiers") is None
     if cancel_event.is_set():
         raise service_module.CancellationRequested("cancelled")
     return {
@@ -1090,6 +1100,135 @@ def test_red_flag_analysis_endpoint_runs_with_listing_page_report_and_web_search
         assert item["models"] == {"redFlags": "gpt-5.4", "warningsAndGreenFlags": "gpt-5.4"}
 
 
+def test_red_flag_model_input_is_minimized_for_large_listing_payloads(monkeypatch, tmp_path: Path) -> None:
+    huge_text = "very detailed dealer text " * 8000
+
+    def huge_listing_page(*_: object, **__: object) -> dict[str, Any]:
+        return {
+            "id": "6146171299",
+            "title": "Mercedes-Benz CLA 250",
+            "description": huge_text,
+            "sellerLink": {
+                "id": "seller-1",
+                "name": "Dealer Name",
+                "websiteUrl": "https://example.com/dealer",
+                "isCreditIntermediary": True,
+                "logo": {"x1": "https://example.com/logo.png"},
+            },
+            "parametersDict": {
+                "version": {"values": [{"label": "CLA 250 4MATIC", "value": "cla-250-4matic"}]},
+                "drive": {"values": [{"label": "4x4"}]},
+                "color": {"displayValue": "White"},
+                **{f"extra-{index}": {"values": [{"value": huge_text}]} for index in range(120)},
+            },
+            "parameters": [{"key": f"ignored-{index}", "displayValue": huge_text, "value": huge_text} for index in range(120)],
+            "images": [{"url": "https://example.com/image.jpg", "caption": huge_text} for _ in range(50)],
+        }
+
+    service = ParserAppService(
+        tmp_path,
+        parser_runner=FakeParserRunner(),
+        listing_page_fetcher=huge_listing_page,
+        parser_options={},
+    )
+    app = create_app(data_dir=tmp_path, service=service)
+
+    monkeypatch.setattr(service_module, "fetch_otomoto_vehicle_identity", lambda url, **kwargs: _fake_identity())
+    monkeypatch.setattr(
+        service_module.VehicleHistoryClient,
+        "fetch_report",
+        lambda self, *args: VehicleHistoryReport(
+            registration_number="DLU8613F",
+            vin_number="WDDSJ4EB2EN056917",
+            first_registration_date="2014-01-01",
+            api_version="1.0.20",
+            technical_data={
+                "technicalData": {
+                    "basicData": {
+                        "make": "Mercedes-Benz",
+                        "model": "CLA",
+                        "type": "250",
+                        "modelYear": "2014",
+                        "fuel": "Petrol",
+                        "engineCapacity": "1991",
+                        "enginePower": "211",
+                        "bodyType": "Sedan",
+                        "color": "White",
+                        "marketingBlurb": huge_text,
+                    },
+                    "ownershipHistory": {
+                        "numberOfOwners": 2,
+                        "numberOfCoowners": 0,
+                        "dateOfLastOwnershipChange": "2021-06-04",
+                        "notes": huge_text,
+                    },
+                }
+            },
+            autodna_data={"summary": {"events": 3}, "raw": huge_text},
+            carfax_data={"summary": {"entries": 1}, "raw": huge_text},
+            timeline_data={
+                "timelineData": {
+                    "events": (
+                        [{"type": "registration", "notes": huge_text} for _ in range(8)]
+                        + [{"type": "inspection", "notes": huge_text} for _ in range(200)]
+                        + [{"type": "sale", "notes": huge_text} for _ in range(292)]
+                    )
+                }
+            },
+        ),
+    )
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        report_response = client.get(f"/api/requests/{request_id}/listings/4/vehicle-report")
+        assert report_response.status_code == 200
+
+        model_input = service._build_red_flag_model_input(request_id, "4")
+        serialized = json.dumps(model_input, ensure_ascii=False)
+
+        assert "searchResultRaw" not in model_input
+        assert "listingPageRaw" not in model_input
+        assert len(serialized) < 30000
+        assert len(model_input["listing"]["description"]) <= 3000
+        assert set(model_input["listing"]["parameters"]).issubset(
+            {
+                "make",
+                "model",
+                "version",
+                "generation",
+                "year",
+                "mileage",
+                "fuel_type",
+                "gearbox",
+                "body_type",
+                "engine_capacity",
+                "engine_power",
+                "drive",
+                "doors_no",
+                "seats_no",
+                "color",
+                "registered",
+                "country_origin",
+                "condition",
+                "origin_country",
+            }
+        )
+        assert model_input["listing"]["parameters"]["version"] == "CLA 250 4MATIC"
+        assert model_input["listing"]["parameters"]["drive"] == "4x4"
+        assert model_input["listing"]["parameters"]["color"] == "White"
+        assert model_input["vehicleReport"]["timeline"]["eventCount"] == 500
+        assert len(model_input["vehicleReport"]["timeline"]["events"]) == 8
+        assert model_input["vehicleReport"]["timeline"]["eventTypes"] == ["registration", "inspection", "sale"]
+        assert model_input["vehicleReport"]["autodnaSummary"] == {"events": 3}
+        assert "raw" not in json.dumps(model_input["vehicleReport"], ensure_ascii=False)
+
+
 def test_red_flag_analysis_becomes_stale_after_report_is_fetched(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "env-test-key-1234")
     service = ParserAppService(
@@ -1135,6 +1274,93 @@ def test_red_flag_analysis_becomes_stale_after_report_is_fetched(monkeypatch, tm
         assert stale_item["reportSnapshotId"] == report_snapshot_id
         assert stale_item["analysisReportSnapshotId"] == "missing"
         assert stale_item["error"] == "Analysis is outdated because the vehicle report changed. Run it again."
+
+
+def test_red_flag_model_input_without_report_does_not_use_encrypted_parameters_dict_identifiers(tmp_path: Path) -> None:
+    service = ParserAppService(
+        tmp_path,
+        parser_runner=FakeParserRunner(),
+        listing_page_fetcher=_fake_listing_page,
+        parser_options={},
+    )
+    app = create_app(data_dir=tmp_path, service=service)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        model_input = service._build_red_flag_model_input(request_id, "4")
+
+        assert model_input["vehicleReport"] is None
+        assert model_input["listing"].get("identifiers") is None
+
+
+def test_red_flag_model_input_without_report_keeps_trusted_listing_identifiers(tmp_path: Path) -> None:
+    service = ParserAppService(
+        tmp_path,
+        parser_runner=FakeParserRunner(),
+        listing_page_fetcher=_fake_listing_page,
+        parser_options={},
+    )
+    app = create_app(data_dir=tmp_path, service=service)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        original_resolve = service._resolve_listing_for_report
+
+        def trusted_listing(request_id_arg: str, listing_id_arg: str) -> dict[str, Any]:
+            listing = dict(original_resolve(request_id_arg, listing_id_arg))
+            listing.update(
+                {
+                    "vin": "WDDSJ4EB2EN056917",
+                    "registrationNumber": "DLU8613F",
+                    "firstRegistrationDate": "2014-01-01",
+                }
+            )
+            return listing
+
+        service._resolve_listing_for_report = trusted_listing  # type: ignore[method-assign]
+        model_input = service._build_red_flag_model_input(request_id, "4")
+
+        assert model_input["vehicleReport"] is None
+        assert model_input["listing"]["identifiers"] == {
+            "vin": "WDDSJ4EB2EN056917",
+            "registrationNumber": "DLU8613F",
+            "firstRegistrationDate": "2014-01-01",
+        }
+
+
+def test_red_flag_model_input_prefers_detail_page_parameter_over_search_result(tmp_path: Path) -> None:
+    service = ParserAppService(
+        tmp_path,
+        parser_runner=FakeParserRunner(),
+        listing_page_fetcher=_fake_listing_page,
+        parser_options={},
+    )
+    app = create_app(data_dir=tmp_path, service=service)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        model_input = service._build_red_flag_model_input(request_id, "4")
+
+        assert model_input["listing"]["parameters"]["model"] == "CLA"
+        assert model_input["listing"]["parameters"]["version"] == "250"
 
 
 def test_red_flag_analysis_becomes_stale_after_report_regeneration(monkeypatch, tmp_path: Path) -> None:
