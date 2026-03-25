@@ -44,7 +44,7 @@ describe("SettingsPage polling regression", () => {
     renderSettingsPage();
 
     expect(await screen.findByText("Configured")).toBeTruthy();
-    expect(screen.getByText("Red-flag analysis uses GPT-5.4-mini with web search. Stored keys override `OPENAI_API_KEY` from the server environment.")).toBeTruthy();
+    expect(screen.getByText("Red-flag analysis uses GPT-5.4 with web search. Stored keys override `OPENAI_API_KEY` from the server environment.")).toBeTruthy();
 
     const initialSettingsCalls = fetchMock.mock.calls.filter(([path]) => path === "/api/settings").length;
     expect(initialSettingsCalls).toBeLessThanOrEqual(2);

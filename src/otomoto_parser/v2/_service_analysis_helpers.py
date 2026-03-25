@@ -81,7 +81,7 @@ def _request_payload(model_input: dict[str, Any]) -> dict[str, Any]:
     return {
         "model": OPENAI_REDFLAG_MODEL,
         "tools": [{"type": "web_search"}],
-        "reasoning": {"effort": "medium"},
+        "reasoning": {"effort": "low"},
         "input": [
             {"role": "system", "content": [{"type": "input_text", "text": _system_prompt()}]},
             {"role": "user", "content": [{"type": "input_text", "text": json.dumps(model_input, ensure_ascii=False)}]},

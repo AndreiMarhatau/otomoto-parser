@@ -12,7 +12,7 @@ export function VehicleAnalysisSection({ analysisState, data, settings, busyFlag
   return (
     <section className="report-section">
       <div className="analysis-section-head">
-        <div><h3>Find red flags</h3><p className="muted">GPT-5.4-mini reviews the listing, the detail page, and the report when it is ready.</p></div>
+        <div><h3>Find red flags</h3><p className="muted">GPT-5.4 reviews the listing, the detail page, and the report when it is ready.</p></div>
         <div className="analysis-actions">
           <span title={ui.buttonTitle}>
             <button type="button" onClick={onStartRedFlags} disabled={ui.disabled}>{ui.primaryLabel}</button>
@@ -92,7 +92,7 @@ function buildAnalysisUi({ analysisState, busyFlags, dataStatus, redFlagData, se
   const disabled = !apiKeyConfigured || redFlagBusy || isLookupBusy(busyFlags) || isRunningStatus(dataStatus);
   return {
     buttonTitle: apiKeyConfigured
-      ? "Find serious red flags with GPT-5.4-mini"
+      ? "Find serious red flags with GPT-5.4"
       : "Set an OpenAI API key in Settings to enable red-flag analysis",
     primaryLabel: redFlagBusy ? "Finding..." : redFlagData?.analysis ? "Run again" : "Find red flags",
     disabled,
