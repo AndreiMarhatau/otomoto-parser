@@ -1,0 +1,49 @@
+.form-actions,
+.detail-actions,
+.tab-row,
+.chip-row,
+.request-row-meta,
+.detail-head,
+.results-head,
+.metric-grid,
+.breadcrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+}
+
+.request-form,
+.request-list,
+.listing-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.request-list {
+  align-content: start;
+}
+
+.muted,
+.request-row p,
+.metric span,
+.panel p {
+  color: var(--text-muted);
+}
+
+.progress-box,
+.error-text {
+  padding: 1rem 1.1rem;
+  border-radius: 20px;
+}
+
+.progress-box {
+  border: 1px solid rgba(255, 211, 111, 0.18);
+  background: rgba(255, 211, 111, 0.1);
+  color: #ffeeb9;
+}
+
+.error-text {
+  border: 1px solid rgba(255, 143, 143, 0.2);
+  background: rgba(255, 143, 143, 0.12);
+  color: #ffd8d8;
+}

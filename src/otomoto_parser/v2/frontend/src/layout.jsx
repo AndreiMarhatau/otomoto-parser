@@ -30,14 +30,31 @@ export function IconButton({ title, onClick, href, disabled = false, tone = "def
   return <button type="button" className={className} title={title} aria-label={title} onClick={onClick} disabled={disabled}>{children}</button>;
 }
 
-export function Shell({ title, children }) {
+export function Shell({ title, subtitle, children }) {
   return (
     <div className="shell">
+      <div className="shell-orbit shell-orbit-a" />
+      <div className="shell-orbit shell-orbit-b" />
       <header className="hero">
-        <div><p className="eyebrow">Otomoto Parser</p><h1>{title}</h1></div>
-        <div className="hero-links"><Link to="/" className="hero-link">All requests</Link><Link to="/settings" className="hero-link">Settings</Link></div>
+        <div className="hero-brand-row">
+          <div>
+            <p className="eyebrow">Otomoto Parser</p>
+            <span className="hero-badge">Automotive review desk</span>
+          </div>
+          <div className="hero-links"><Link to="/" className="hero-link">All requests</Link><Link to="/settings" className="hero-link">Settings</Link></div>
+        </div>
+        <div className="hero-main">
+          <div className="hero-copy">
+            <h1>{title}</h1>
+            {subtitle ? <p className="hero-subtitle">{subtitle}</p> : null}
+          </div>
+          <div className="hero-aside">
+            <span>Live parser state</span>
+            <strong>Requests, categorization, reports, export</strong>
+          </div>
+        </div>
       </header>
-      {children}
+      <main className="shell-content">{children}</main>
     </div>
   );
 }

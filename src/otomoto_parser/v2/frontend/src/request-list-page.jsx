@@ -14,6 +14,9 @@ export function RequestListPage() {
   const [error, setError] = React.useState(null);
   const { data, loading, reload } = usePolling(() => api("/api/requests"), true, "/api/requests");
   const items = data?.items || [];
+  const readyCount = items.filter((item) => item.status === "ready").length;
+  const activeCount = items.filter((item) => inProgressStatuses.has(item.status)).length;
+  const listingCount = items.reduce((total, item) => total + (item.resultsWritten || 0), 0);
 
   async function submit(event) {
     event.preventDefault();
@@ -42,10 +45,16 @@ export function RequestListPage() {
   }
 
   return (
-    <Shell title="Version 2 workspace">
+    <Shell title="Version 2 workspace" subtitle="Parse live Otomoto searches, triage newly fetched stock, and keep every run in a reviewable history.">
+      <section className="hero-metrics">
+        <MetricCard label="Requests in desk" value={items.length} tone="neutral" />
+        <MetricCard label="Ready for review" value={readyCount} tone="positive" />
+        <MetricCard label="Currently running" value={activeCount} tone="warning" />
+        <MetricCard label="Listings captured" value={listingCount} tone="accent" />
+      </section>
       <section className="panel panel-grid">
         <div className="panel-block">
-          <h2>Create request</h2><p className="muted">Paste an Otomoto search URL. The backend starts parsing immediately and keeps progress in history.</p>
+          <div className="section-heading"><p className="eyebrow">Start a run</p><h2>Create request</h2><p className="muted">Paste an Otomoto search URL. The backend starts parsing immediately and keeps progress in history.</p></div>
           <form className="request-form" onSubmit={submit}>
             <textarea value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://www.otomoto.pl/osobowe/..." rows={5} required />
             <div className="form-actions">
@@ -56,11 +65,21 @@ export function RequestListPage() {
           </form>
         </div>
         <div className="panel-block">
-          <h2>History</h2>{loading ? <p className="muted">Loading requests...</p> : null}{!loading && items.length === 0 ? <p className="muted">No requests yet.</p> : null}
+          <div className="section-heading"><p className="eyebrow">Review queue</p><h2>History</h2><p className="muted">Each request keeps parser progress, result files, categorized output, and exports together.</p></div>
+          {loading ? <p className="muted">Loading requests...</p> : null}{!loading && items.length === 0 ? <p className="muted">No requests yet.</p> : null}
           <div className="request-list">{items.map((item) => <RequestRow key={item.id} item={item} navigate={navigate} onRemove={removeRequest} />)}</div>
         </div>
       </section>
     </Shell>
+  );
+}
+
+function MetricCard({ label, value, tone }) {
+  return (
+    <div className={`hero-metric hero-metric-${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
   );
 }
 

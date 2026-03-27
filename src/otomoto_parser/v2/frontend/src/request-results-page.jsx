@@ -33,7 +33,7 @@ export function RequestResultsPage() {
   usePollingEffects({ requestId, reportState, redFlagState, setRedFlagState, loadRedFlagState, updateVehicleReportResultItem: dataState.updateVehicleReportResultItem });
 
   return (
-    <Shell title="Categorized results">
+    <Shell title="Categorized results" subtitle="Audit fresh inventory, move cars into your working buckets, and open deeper vehicle history context without leaving the board.">
       <Breadcrumbs items={[{ label: "Requests", to: "/" }, dataState.request ? { label: `Request ${dataState.request.id}`, to: `/requests/${dataState.request.id}` } : { label: "Request" }, { label: "Results" }]} />
       <section className="panel">
         {dataState.requestLoading ? <p className="muted">Loading request...</p> : null}
@@ -65,9 +65,18 @@ function ResultsSection({ dataState, geolocation, categoryActions, listTopRef, s
 }
 
 function ResultsHeader({ dataState, geolocation }) {
+  const currentCategory = dataState.results.categories[dataState.activeCategory];
   return (
     <div className="results-head">
-      <div><h2>{dataState.results.totalCount} listings</h2><p className="muted">Generated {new Date(dataState.results.generatedAt).toLocaleString()}</p></div>
+      <div className="results-title-block">
+        <h2>{dataState.results.totalCount} listings</h2>
+        <p className="muted">Generated {new Date(dataState.results.generatedAt).toLocaleString()}</p>
+        <div className="results-highlight-strip">
+          <span className="results-highlight-card"><span>Active lane</span><strong>{currentCategory?.label || "—"}</strong></span>
+          <span className="results-highlight-card"><span>In lane</span><strong>{currentCategory?.count || 0}</strong></span>
+          <span className="results-highlight-card"><span>Assignable</span><strong>{dataState.results.assignableCategories?.length || 0}</strong></span>
+        </div>
+      </div>
       <div className="results-controls">
         <button type="button" className="button-secondary" onClick={geolocation.requestCurrentPosition} disabled={!dataState.results || geolocation.geolocationState.status === "requesting" || geolocation.geolocationState.status === "unavailable"}>{getGeolocationButtonLabel(geolocation.geolocationState)}</button>
         <span className="muted results-location-status">{formatGeolocationStatus(geolocation.geolocationState)}</span>
@@ -80,7 +89,7 @@ function ResultsHeader({ dataState, geolocation }) {
 function ResultsTabs({ categoryEntries, activeCategory, setActiveCategory, setCurrentPage, categoryMap, categoryActions }) {
   return (
     <div className="tab-row">
-      {categoryEntries.map(([categoryKey, category]) => <button key={categoryKey} className={categoryKey === activeCategory ? "tab active" : "tab"} onClick={() => { setCurrentPage(1); setActiveCategory(categoryKey); }}>{category.label}<span>{category.count || 0}</span></button>)}
+      {categoryEntries.map(([categoryKey, category]) => <button key={categoryKey} className={categoryKey === activeCategory ? "tab active" : "tab"} onClick={() => { setCurrentPage(1); setActiveCategory(categoryKey); }}><span className="tab-label">{category.label}</span><span className="tab-count">{category.count || 0}</span></button>)}
       <div className="tab-row-actions">
         <IconButton title="Add category" tone="secondary" onClick={() => void categoryActions.createCategoryTab()}><IconPlus /></IconButton>
         {categoryMap[activeCategory]?.editable ? <IconButton title="Rename category" tone="secondary" onClick={categoryActions.renameActiveCategory}><IconEdit /></IconButton> : null}

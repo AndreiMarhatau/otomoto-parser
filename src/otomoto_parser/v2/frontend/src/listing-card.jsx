@@ -13,9 +13,23 @@ export function ListingCard({ item, assignableCategories, categoryBusy, onAssign
     <article className={categoryPickerOpen ? "listing-card listing-card-overlay-open" : "listing-card"}>
       <a href={item.url} target="_blank" rel="noreferrer" className="listing-card-anchor" aria-label={`Open listing: ${item.title || "listing"}`} />
       <div className="listing-card-body">
-        <div className="listing-image-wrap">{item.imageUrl ? <img src={item.imageUrl} alt={item.title} className="listing-image" /> : <div className="listing-image placeholder" />}</div>
+        <div className="listing-image-wrap">
+          {item.imageUrl ? <img src={item.imageUrl} alt={item.title} className="listing-image" /> : <div className="listing-image placeholder" />}
+          <div className="listing-image-badge">{item.category}</div>
+        </div>
         <div className="listing-content">
-          <div className="listing-topline"><h3>{item.title}</h3><strong>{item.price ? `${item.price.toLocaleString("pl-PL")} ${item.priceCurrency}` : "—"}</strong></div>
+          <div className="listing-heading">
+            <div className="listing-topline">
+              <div className="listing-title-block">
+                <p className="listing-kicker">{item.countryOrigin || (item.dataVerified ? "Verified inventory" : "Needs verification")}</p>
+                <h3>{item.title}</h3>
+              </div>
+              <div className="listing-price-block">
+                <span>Ask</span>
+                <strong>{item.price ? `${item.price.toLocaleString("pl-PL")} ${item.priceCurrency}` : "—"}</strong>
+              </div>
+            </div>
+          </div>
           <p className="muted">{item.shortDescription || "No short description."}</p>
           <ListingActions item={item} assignableCategories={assignableCategories} categoryBusy={categoryBusy} onAssignCategories={onAssignCategories} onCreateCategory={onCreateCategory} onOpenReport={onOpenReport} onOpenChange={setCategoryPickerOpen} reportStatus={reportStatus} reportStateTitle={reportStateTitle} />
           <div className="listing-place-row">
@@ -34,7 +48,10 @@ function ListingActions({ item, assignableCategories, categoryBusy, onAssignCate
     <div className="listing-action-row">
       <CategoryPicker item={item} categories={assignableCategories} busy={categoryBusy} onCommit={onAssignCategories} onCreateCategory={onCreateCategory} onOpenChange={onOpenChange} />
       <button type="button" className="listing-report-button chip-interactive" title="Open vehicle report" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onOpenReport(item); }}>
-        <IconReport /><span>Vehicle report</span>{reportStatus === "success" ? <span className="listing-report-state listing-report-state-success" title={reportStateTitle}><IconCheckBadge /></span> : null}{reportStatus === "failed" ? <span className="listing-report-state listing-report-state-failed" title={reportStateTitle}><IconXBadge /></span> : null}
+        <IconReport />
+        <span>Vehicle report</span>
+        {reportStatus === "success" ? <span className="listing-report-state listing-report-state-success" title={reportStateTitle}><IconCheckBadge /></span> : null}
+        {reportStatus === "failed" ? <span className="listing-report-state listing-report-state-failed" title={reportStateTitle}><IconXBadge /></span> : null}
       </button>
     </div>
   );

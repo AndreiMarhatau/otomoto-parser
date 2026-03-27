@@ -32,11 +32,11 @@ export function RequestDetailPage() {
   if (loading && !item) return <Shell title="Request details"><p className="muted">Loading request...</p></Shell>;
   if (error && !item) return <Shell title="Request details"><p className="error-text">{error.message}</p></Shell>;
   return (
-    <Shell title="Request details">
+    <Shell title="Request details" subtitle="Inspect the parser run, confirm outputs, and reopen the categorized review workspace when the batch is ready.">
       <Breadcrumbs items={[{ label: "Requests", to: "/" }, { label: `Request ${item.id}` }]} />
       <section className="panel">
         <div className="detail-head">
-          <div><p className="muted">Source link</p><a href={item.sourceUrl} target="_blank" rel="noreferrer" className="link-break">{item.sourceUrl}</a></div>
+          <div className="detail-source"><p className="eyebrow">Source link</p><a href={item.sourceUrl} target="_blank" rel="noreferrer" className="link-break">{item.sourceUrl}</a></div>
           <div className="request-row-controls"><StatusPill status={item.status} /><IconButton title="Delete request" tone="danger" disabled={inProgressStatuses.has(item.status)} onClick={removeRequest}><IconTrash /></IconButton></div>
         </div>
         <div className="metric-grid"><Metric label="Pages completed" value={item.pagesCompleted} /><Metric label="Listings written" value={item.resultsWritten} /><Metric label="Results" value={item.resultsReady ? "Ready" : "Not ready"} /><Metric label="Excel" value={item.excelReady ? "Ready" : "Pending"} /></div>

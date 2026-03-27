@@ -1,7 +1,8 @@
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(24, 18, 12, 0.44);
+  background: rgba(5, 9, 15, 0.72);
+  backdrop-filter: blur(10px);
   display: grid;
   place-items: center;
   padding: 1.5rem;
@@ -9,29 +10,32 @@
 }
 
 .modal-panel {
-  width: min(900px, 100%);
+  width: min(940px, 100%);
   max-height: 88vh;
   overflow: auto;
-  background: #fffaf2;
-  border-radius: 28px;
-  padding: 1.25rem;
-  border: 1px solid #e6dac6;
-  box-shadow: 0 24px 48px rgba(48, 36, 21, 0.24);
+  border-radius: 30px;
+  padding: 1.3rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(16, 23, 35, 0.96), rgba(9, 15, 25, 0.98));
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.44);
 }
 
 .modal-panel-report {
-  width: min(1040px, 100%);
+  width: min(1180px, 100%);
 }
 
 .modal-head {
   display: flex;
   justify-content: space-between;
-  align-items: start;
+  align-items: flex-start;
   gap: 1rem;
 }
 
 .modal-head h2 {
-  margin: 0.25rem 0 0;
+  margin: 0.25rem 0 0.3rem;
+  font-size: clamp(1.45rem, 2vw, 2rem);
+  letter-spacing: -0.03em;
 }
 
 .modal-meta {
@@ -46,8 +50,8 @@
   height: min(46vh, 420px);
   min-height: 280px;
   border: 0;
-  border-radius: 22px;
-  background: #ece3d6;
+  border-radius: 24px;
+  background: #182335;
 }
 
 .modal-footnote {
@@ -61,21 +65,26 @@
 
 .report-section,
 .report-details {
-  background: #f8f3eb;
-  border: 1px solid #eadfcf;
-  border-radius: 22px;
+  border-radius: 24px;
   padding: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .report-section h3 {
   margin: 0 0 0.9rem;
+  font-size: 1.02rem;
+}
+
+.report-details[open] {
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .analysis-section-head {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
-  align-items: start;
+  align-items: flex-start;
 }
 
 .analysis-actions {
@@ -88,11 +97,11 @@
   display: flex;
   align-items: center;
   gap: 0.7rem;
-  padding: 0.9rem 1rem;
+  padding: 0.95rem 1rem;
   border-radius: 18px;
-  background: #fff0cc;
-  border: 1px solid #f2d58e;
-  color: #7a5308;
+  background: rgba(255, 211, 111, 0.1);
+  border: 1px solid rgba(255, 211, 111, 0.18);
+  color: #ffe6a2;
   margin-bottom: 1rem;
 }
 
@@ -100,4 +109,14 @@
   width: 1.1rem;
   height: 1.1rem;
   flex: 0 0 auto;
+}
+
+@media (max-width: 920px) {
+  .modal-head {
+    flex-direction: column;
+  }
+
+  .map-frame {
+    min-height: 320px;
+  }
 }
