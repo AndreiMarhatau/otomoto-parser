@@ -37,6 +37,7 @@ export function useResultsGeolocation(results, currentItems) {
         const nextPlan = getInitialGeolocationPlan({ hasGeolocation: Boolean(navigator.geolocation), isSecureContext: window.isSecureContext, hasPermissionsApi: true, permissionState: permissionStatus.state });
         const current = geolocationStateRef.current;
         if (nextPlan.shouldRequestPosition && !geolocationRequestInFlightRef.current && (current.status !== "ready" || !current.coords)) return requestCurrentPosition();
+        if (nextPlan.status === "idle" && (current.status === "requesting" || current.status === "ready")) return;
         if (nextPlan.status === "prompt" && (current.status === "requesting" || current.status === "ready")) return;
         if (current.status !== nextPlan.status || current.coords !== null) updateGeolocationState({ status: nextPlan.status, coords: null, unavailableReason: null });
       };

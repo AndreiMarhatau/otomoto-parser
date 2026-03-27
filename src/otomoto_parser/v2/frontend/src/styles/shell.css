@@ -1,69 +1,90 @@
 .shell {
   position: relative;
-  max-width: 1480px;
+  max-width: 1500px;
   margin: 0 auto;
-  padding: 2.4rem 1.25rem 4rem;
+  padding: 1rem 1rem 4rem;
 }
 
-.shell-orbit {
+.shell-glow {
   position: fixed;
-  inset: auto;
   z-index: -1;
-  filter: blur(16px);
+  inset: auto;
+  border-radius: 999px;
+  filter: blur(24px);
   pointer-events: none;
 }
 
-.shell-orbit-a {
-  top: 88px;
+.shell-glow-a {
+  top: 80px;
   left: max(12px, calc(50% - 720px));
-  width: 220px;
-  height: 220px;
-  border-radius: 999px;
-  background: radial-gradient(circle, rgba(255, 143, 63, 0.24) 0%, rgba(255, 143, 63, 0) 70%);
+  width: 240px;
+  height: 240px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 28%, transparent) 0%, transparent 72%);
 }
 
-.shell-orbit-b {
-  top: 180px;
-  right: max(12px, calc(50% - 720px));
-  width: 280px;
-  height: 280px;
-  border-radius: 999px;
-  background: radial-gradient(circle, rgba(109, 226, 213, 0.18) 0%, rgba(109, 226, 213, 0) 72%);
+.shell-glow-b {
+  top: 170px;
+  right: max(12px, calc(50% - 740px));
+  width: 320px;
+  height: 320px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent-alt) 22%, transparent) 0%, transparent 72%);
+}
+
+.shell-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.shell-brand {
+  display: grid;
+  gap: 0.16rem;
+}
+
+.shell-brand strong {
+  font-size: 1.05rem;
+  letter-spacing: -0.03em;
+}
+
+.shell-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
 .shell-content {
   display: grid;
-  gap: 1.2rem;
+  gap: 1.25rem;
+}
+
+.hero,
+.panel {
+  border-radius: 30px;
+  border: 1px solid var(--line);
+  background: var(--bg-panel);
+  backdrop-filter: blur(18px);
+  box-shadow: var(--shadow-lg);
 }
 
 .hero {
-  position: relative;
-  overflow: hidden;
-  margin-bottom: 1.25rem;
-  padding: 1.35rem 1.45rem 1.5rem;
-  border-radius: 32px;
-  border: 1px solid var(--line);
-  background:
-    linear-gradient(140deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)),
-    linear-gradient(180deg, rgba(18, 27, 42, 0.96), rgba(9, 15, 25, 0.98));
-  box-shadow: var(--shadow-lg);
-}
-
-.hero::after {
-  content: "";
-  position: absolute;
-  inset: auto -30px -48px auto;
-  width: 220px;
-  height: 220px;
-  background: radial-gradient(circle, rgba(255, 143, 63, 0.2) 0%, rgba(255, 143, 63, 0) 72%);
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(260px, 0.9fr);
+  gap: 1rem;
+  margin-bottom: 0.6rem;
+  min-height: 220px;
+  padding: 1.55rem;
 }
 
 .panel {
-  border-radius: 30px;
-  padding: 1.3rem;
-  border: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(13, 20, 32, 0.92), rgba(9, 15, 25, 0.94));
-  box-shadow: var(--shadow-lg);
+  padding: 1.25rem;
+}
+
+.panel-emphasis {
+  background:
+    linear-gradient(140deg, color-mix(in srgb, var(--accent) 8%, transparent), transparent 45%),
+    var(--bg-panel-strong);
 }
 
 .panel-grid {
@@ -72,16 +93,9 @@
   gap: 1rem;
 }
 
-.panel-block {
-  padding: 1.05rem;
-  border-radius: 24px;
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.035);
-}
-
 .panel-block h2,
 .panel h2 {
-  margin: 0.18rem 0 0.4rem;
+  margin: 0.18rem 0 0.45rem;
   color: var(--text);
   font-size: clamp(1.32rem, 2vw, 1.8rem);
 }
@@ -98,7 +112,7 @@
 
 .breadcrumbs a {
   text-decoration: none;
-  color: #f2d3b5;
+  color: var(--accent);
 }
 
 .detail-source,
@@ -109,6 +123,7 @@
 }
 
 @media (max-width: 1120px) {
+  .hero,
   .panel-grid {
     grid-template-columns: 1fr;
   }
@@ -116,10 +131,17 @@
 
 @media (max-width: 920px) {
   .shell {
-    padding: 1rem 0.8rem 3rem;
+    padding: 0.9rem 0.8rem 3rem;
   }
 
-  .hero {
+  .shell-topbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .hero,
+  .panel {
+    border-radius: 24px;
     padding: 1rem;
   }
 }

@@ -4,9 +4,12 @@
 .chip-row,
 .request-row-meta,
 .detail-head,
-.results-head,
 .metric-grid,
-.breadcrumbs {
+.breadcrumbs,
+.results-controls,
+.results-footer,
+.pagination,
+.modal-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 0.8rem;
@@ -32,18 +35,19 @@
 
 .progress-box,
 .error-text {
-  padding: 1rem 1.1rem;
-  border-radius: 20px;
+  margin: 0;
+  padding: 1rem 1.05rem;
+  border-radius: 18px;
 }
 
 .progress-box {
-  border: 1px solid rgba(255, 211, 111, 0.18);
-  background: rgba(255, 211, 111, 0.1);
-  color: #ffeeb9;
+  border: 1px solid color-mix(in srgb, var(--warning) 20%, transparent);
+  background: color-mix(in srgb, var(--warning) 12%, var(--bg-soft));
+  color: var(--text);
 }
 
 .error-text {
-  border: 1px solid rgba(255, 143, 143, 0.2);
-  background: rgba(255, 143, 143, 0.12);
-  color: #ffd8d8;
+  border: 1px solid color-mix(in srgb, var(--danger) 24%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, var(--bg-soft));
+  color: var(--danger);
 }

@@ -33,27 +33,29 @@ export function IconButton({ title, onClick, href, disabled = false, tone = "def
 export function Shell({ title, subtitle, children }) {
   return (
     <div className="shell">
-      <div className="shell-orbit shell-orbit-a" />
-      <div className="shell-orbit shell-orbit-b" />
-      <header className="hero">
-        <div className="hero-brand-row">
-          <div>
-            <p className="eyebrow">Otomoto Parser</p>
-            <span className="hero-badge">Automotive review desk</span>
-          </div>
-          <div className="hero-links"><Link to="/" className="hero-link">All requests</Link><Link to="/settings" className="hero-link">Settings</Link></div>
+      <div className="shell-glow shell-glow-a" />
+      <div className="shell-glow shell-glow-b" />
+      <header className="shell-topbar">
+        <div className="shell-brand">
+          <p className="eyebrow">Otomoto Parser</p>
+          <strong>Review workspace</strong>
         </div>
-        <div className="hero-main">
-          <div className="hero-copy">
-            <h1>{title}</h1>
-            {subtitle ? <p className="hero-subtitle">{subtitle}</p> : null}
-          </div>
-          <div className="hero-aside">
-            <span>Live parser state</span>
-            <strong>Requests, categorization, reports, export</strong>
-          </div>
-        </div>
+        <nav className="shell-nav" aria-label="Primary">
+          <Link to="/" className="hero-link">All requests</Link>
+          <Link to="/settings" className="hero-link">Settings</Link>
+        </nav>
       </header>
+      <section className="hero">
+        <div className="hero-copy">
+          <span className="hero-badge">Inventory triage and reporting</span>
+          <h1>{title}</h1>
+          {subtitle ? <p className="hero-subtitle">{subtitle}</p> : null}
+        </div>
+        <aside className="hero-aside">
+          <span>Workspace scope</span>
+          <strong>Requests, categorization, distance context, and vehicle reports in one flow.</strong>
+        </aside>
+      </section>
       <main className="shell-content">{children}</main>
     </div>
   );

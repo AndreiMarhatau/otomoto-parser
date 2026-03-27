@@ -35,7 +35,7 @@ export function RequestResultsPage() {
   return (
     <Shell title="Categorized results" subtitle="Audit fresh inventory, move cars into your working buckets, and open deeper vehicle history context without leaving the board.">
       <Breadcrumbs items={[{ label: "Requests", to: "/" }, dataState.request ? { label: `Request ${dataState.request.id}`, to: `/requests/${dataState.request.id}` } : { label: "Request" }, { label: "Results" }]} />
-      <section className="panel">
+      <section className="panel results-shell">
         {dataState.requestLoading ? <p className="muted">Loading request...</p> : null}
         {dataState.request && !dataState.request.resultsReady ? <><p className="progress-box">{dataState.request.progressMessage}</p><p className="muted">Results stay hidden until categorization finishes.</p></> : null}
         {dataState.resultsError && dataState.request?.resultsReady ? <p className="error-text">{dataState.resultsError}</p> : null}
@@ -54,21 +54,31 @@ function ResultsSection({ dataState, geolocation, categoryActions, listTopRef, s
   const totalPages = dataState.results?.pagination?.totalPages || 1;
   const pageNumbers = buildPageItems(safePage, totalPages);
   return (
-    <>
+    <div className="results-workbench">
       <ResultsHeader dataState={dataState} geolocation={geolocation} />
       <ResultsTabs categoryEntries={categoryEntries} activeCategory={dataState.activeCategory} setActiveCategory={dataState.setActiveCategory} setCurrentPage={dataState.setCurrentPage} categoryMap={dataState.results?.categories || {}} categoryActions={categoryActions} />
-      <div ref={listTopRef} className="results-list-top" />
-      <div className="listing-grid">{currentItems.length === 0 ? <p className="muted">No listings in this category.</p> : currentItems.map((item) => <ListingCard key={item.id} item={item} assignableCategories={dataState.results?.assignableCategories || []} categoryBusy={Boolean(dataState.categoryBusyByListing[item.id])} onAssignCategories={categoryActions.assignSavedCategories} onCreateCategory={dataState.createCategory} onOpenLocation={setLocationPreview} onOpenReport={reportState.openVehicleReport} distanceLabel={formatDistanceChip(item.location, geolocation.geolocationState, geolocation.locationCache[item.location])} />)}</div>
-      {currentItems.length > 0 ? <PaginationFooter results={dataState.results} safePage={safePage} pageSize={dataState.pageSize} totalPages={totalPages} pageNumbers={pageNumbers} setCurrentPage={dataState.setCurrentPage} /> : null}
-    </>
+      <section className="results-board">
+        <div className="results-board-head">
+          <div>
+            <p className="eyebrow">Listing review surface</p>
+            <h3>{currentCategoryLabel(dataState)}</h3>
+          </div>
+          <p className="muted">Focused queue for triage, saved buckets, map context, and vehicle history review.</p>
+        </div>
+        <div ref={listTopRef} className="results-list-top" />
+        <div className="listing-grid">{currentItems.length === 0 ? <p className="muted">No listings in this category.</p> : currentItems.map((item) => <ListingCard key={item.id} item={item} assignableCategories={dataState.results?.assignableCategories || []} categoryBusy={Boolean(dataState.categoryBusyByListing[item.id])} onAssignCategories={categoryActions.assignSavedCategories} onCreateCategory={dataState.createCategory} onOpenLocation={setLocationPreview} onOpenReport={reportState.openVehicleReport} distanceLabel={formatDistanceChip(item.location, geolocation.geolocationState, geolocation.locationCache[item.location])} />)}</div>
+        {currentItems.length > 0 ? <PaginationFooter results={dataState.results} safePage={safePage} pageSize={dataState.pageSize} totalPages={totalPages} pageNumbers={pageNumbers} setCurrentPage={dataState.setCurrentPage} /> : null}
+      </section>
+    </div>
   );
 }
 
 function ResultsHeader({ dataState, geolocation }) {
   const currentCategory = dataState.results.categories[dataState.activeCategory];
   return (
-    <div className="results-head">
+    <section className="results-overview">
       <div className="results-title-block">
+        <p className="eyebrow">Requests / Results</p>
         <h2>{dataState.results.totalCount} listings</h2>
         <p className="muted">Generated {new Date(dataState.results.generatedAt).toLocaleString()}</p>
         <div className="results-highlight-strip">
@@ -77,25 +87,39 @@ function ResultsHeader({ dataState, geolocation }) {
           <span className="results-highlight-card"><span>Assignable</span><strong>{dataState.results.assignableCategories?.length || 0}</strong></span>
         </div>
       </div>
-      <div className="results-controls">
-        <button type="button" className="button-secondary" onClick={geolocation.requestCurrentPosition} disabled={!dataState.results || geolocation.geolocationState.status === "requesting" || geolocation.geolocationState.status === "unavailable"}>{getGeolocationButtonLabel(geolocation.geolocationState)}</button>
+      <div className="results-controls-card">
+        <div className="results-controls">
+          <button type="button" className="button-secondary" onClick={geolocation.requestCurrentPosition} disabled={!dataState.results || geolocation.geolocationState.status === "requesting" || geolocation.geolocationState.status === "unavailable"}>{getGeolocationButtonLabel(geolocation.geolocationState)}</button>
+          <label className="page-size-control"><span className="chip-label">Per page</span><select value={dataState.pageSize} onChange={(event) => { dataState.setCurrentPage(1); dataState.setPageSize(Number(event.target.value)); }}>{pageSizeOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+        </div>
         <span className="muted results-location-status">{formatGeolocationStatus(geolocation.geolocationState)}</span>
-        <label className="page-size-control"><span className="chip-label">Per page</span><select value={dataState.pageSize} onChange={(event) => { dataState.setCurrentPage(1); dataState.setPageSize(Number(event.target.value)); }}>{pageSizeOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
       </div>
-    </div>
+    </section>
   );
+}
+
+function currentCategoryLabel(dataState) {
+  return dataState.results.categories[dataState.activeCategory]?.label || "Current lane";
 }
 
 function ResultsTabs({ categoryEntries, activeCategory, setActiveCategory, setCurrentPage, categoryMap, categoryActions }) {
   return (
-    <div className="tab-row">
-      {categoryEntries.map(([categoryKey, category]) => <button key={categoryKey} className={categoryKey === activeCategory ? "tab active" : "tab"} onClick={() => { setCurrentPage(1); setActiveCategory(categoryKey); }}><span className="tab-label">{category.label}</span><span className="tab-count">{category.count || 0}</span></button>)}
-      <div className="tab-row-actions">
-        <IconButton title="Add category" tone="secondary" onClick={() => void categoryActions.createCategoryTab()}><IconPlus /></IconButton>
-        {categoryMap[activeCategory]?.editable ? <IconButton title="Rename category" tone="secondary" onClick={categoryActions.renameActiveCategory}><IconEdit /></IconButton> : null}
-        {categoryMap[activeCategory]?.deletable ? <IconButton title="Delete category" tone="danger" onClick={categoryActions.deleteActiveCategory}><IconTrash /></IconButton> : null}
+    <section className="tab-panel">
+      <div className="tab-panel-head">
+        <div>
+          <p className="eyebrow">Review lanes</p>
+          <h3>Move listings through your buckets</h3>
+        </div>
+        <div className="tab-row-actions">
+          <IconButton title="Add category" tone="secondary" onClick={() => void categoryActions.createCategoryTab()}><IconPlus /></IconButton>
+          {categoryMap[activeCategory]?.editable ? <IconButton title="Rename category" tone="secondary" onClick={categoryActions.renameActiveCategory}><IconEdit /></IconButton> : null}
+          {categoryMap[activeCategory]?.deletable ? <IconButton title="Delete category" tone="danger" onClick={categoryActions.deleteActiveCategory}><IconTrash /></IconButton> : null}
+        </div>
       </div>
-    </div>
+      <div className="tab-row">
+        {categoryEntries.map(([categoryKey, category]) => <button key={categoryKey} className={categoryKey === activeCategory ? "tab active" : "tab"} onClick={() => { setCurrentPage(1); setActiveCategory(categoryKey); }}><span className="tab-label">{category.label}</span><span className="tab-count">{category.count || 0}</span></button>)}
+      </div>
+    </section>
   );
 }
 

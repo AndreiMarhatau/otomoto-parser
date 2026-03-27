@@ -25,15 +25,15 @@
 }
 
 .analysis-list-critical {
-  color: #ffb3b3;
+  color: var(--danger);
 }
 
 .analysis-list-warning {
-  color: #ffe5a2;
+  color: var(--warning);
 }
 
 .analysis-list-positive {
-  color: #c7f6d4;
+  color: var(--positive);
 }
 
 .report-details summary {
@@ -52,8 +52,8 @@
   gap: 0.28rem;
   padding: 0.9rem 0.95rem;
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.035);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
 }
 
 .report-pair span,
@@ -77,8 +77,8 @@
 .report-tree-value {
   padding: 0.9rem 0.95rem;
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.035);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
 }
 
 .report-tree-nested-list {
