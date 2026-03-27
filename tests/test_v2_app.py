@@ -65,7 +65,7 @@ def _record(
         "thumbnail": {"x1": "https://example.com/car.jpg", "x2": "https://example.com/car@2x.jpg"},
         "parameters": parameters,
         "location": {"city": {"name": "Warsaw"}, "region": {"name": "Mazowieckie"}},
-        "price": {"amount": {"units": 43000, "currencyCode": "PLN"}},
+        "price": {"amount": {"units": 43000, "value": "43000", "currencyCode": "PLN"}},
         "cepikVerified": cepik_verified,
         "priceEvaluation": price_evaluation,
     }
@@ -186,28 +186,39 @@ def _fake_listing_page(*_: object, **__: object) -> dict[str, Any]:
     return {
         "id": "6146171299",
         "title": "Mercedes-Benz CLA 250",
-        "sellerLink": "https://example.com/dealer",
+        "price": {"labels": [{"label": "Gross"}]},
+        "mainFeatures": ["First owner", "Service book"],
         "description": "Detailed listing page payload",
-        "parameters": [
-            {"key": "model", "displayValue": "CLA", "value": "cla"},
-            {"key": "version", "displayValue": "250", "value": "250"},
-        ],
-        "parametersDict": {
-            "vin": {"values": [{"value": "encrypted-vin"}]},
-            "registration": {"values": [{"value": "encrypted-reg"}]},
-            "date_registration": {"values": [{"value": "encrypted-date"}]},
+        "seller": {
+            "type": "dealer",
+            "featuresBadges": [{"label": "Company seller"}],
         },
+        "equipment": [{"label": "Comfort", "values": [{"label": "Air conditioning"}]}],
+        "isParts": False,
+        "isUsedCar": True,
+        "verifiedCar": {"status": "verified"},
+        "verifiedCarFields": ["vin", "registration"],
+        "details": [
+            {"key": "model", "label": "Model", "value": "CLA"},
+            {"key": "version", "label": "Version", "value": "250"},
+            {"key": "drive", "label": "Drive", "value": "4x4"},
+            {"key": "color", "label": "Color", "value": "White"},
+            {"key": "vin", "label": "VIN", "value": "Wv3K9Zx1k7PjYIaJz62w+Pbg26TSroFd9HO9iVuhxOgs.1.ctzWCzFZf7YcoRbtqWY++A=="},
+            {"key": "registration", "label": "Registration", "value": "O42JyEHx385vdx5SNhOZSIPPptMpvJWl.1.KRKEiQLPrCHWJtiYviYD7A=="},
+            {"key": "date_registration", "label": "First registration", "value": "cH5qTiAf6w1chGVA+eFmkBKi8sphFIb+mzI=.1.oKkuw5QdwFdr/LuW8/+pXg=="},
+        ],
     }
 
 
 def _fake_red_flag_analyzer(_: str, model_input: dict[str, Any], cancel_event: threading.Event) -> dict[str, Any]:
-    assert model_input["listing"]["title"] == "To check"
+    assert model_input["listing"]["search"]["title"] == "To check"
     assert model_input["analysisContext"]["vehicleReportAvailable"] is True
-    assert model_input["listing"]["listingContent"]["description"] == "Detailed listing page payload"
-    assert model_input["listing"]["vehicle"]["model"] == "CLA"
-    assert model_input["listing"]["vehicle"]["version"] == "250"
+    assert model_input["listing"]["listing"]["description"] == "Detailed listing page payload"
+    assert model_input["listing"]["listing"]["details"][0] == {"label": "Model", "value": "CLA"}
+    assert model_input["listing"]["listing"]["details"][1] == {"label": "Version", "value": "250"}
     assert model_input["vehicleReport"] is not None
-    assert "sourceStatus" in model_input["vehicleReport"]
+    assert "report" in model_input["vehicleReport"]
+    assert "summary" in model_input["vehicleReport"]
     if cancel_event.is_set():
         raise service_module.CancellationRequested("cancelled")
     return {
@@ -252,7 +263,7 @@ def _slow_cancel_red_flag_analyzer(_: str, model_input: dict[str, Any], cancel_e
 def _fake_red_flag_analyzer_without_report(_: str, model_input: dict[str, Any], cancel_event: threading.Event) -> dict[str, Any]:
     assert model_input["vehicleReport"] is None
     assert model_input["analysisContext"]["vehicleReportAvailable"] is False
-    assert model_input["listing"]["vehicle"].get("identifiers") is None
+    assert model_input["listing"].get("listing") is not None
     if cancel_event.is_set():
         raise service_module.CancellationRequested("cancelled")
     return {
@@ -1191,45 +1202,33 @@ def test_red_flag_model_input_is_minimized_for_large_listing_payloads(monkeypatc
         assert report_response.status_code == 200
 
         model_input = service._build_red_flag_model_input(request_id, "4")
-        serialized = json.dumps(model_input, ensure_ascii=False)
-
         assert "searchResultRaw" not in model_input
         assert "listingPageRaw" not in model_input
-        assert len(serialized) < 30000
-        assert "generatedAt" not in serialized
-        assert "reportSnapshotId" not in serialized
-        assert len(model_input["listing"]["listingContent"]["description"]) <= 3000
-        assert set(model_input["listing"]["vehicle"]).issubset(
-            {
-                "identifiers",
-                "make",
-                "model",
-                "version",
-                "generation",
-                "year",
-                "mileage",
-                "fuelType",
-                "gearbox",
-                "bodyType",
-                "engineCapacity",
-                "enginePower",
-                "drive",
-                "doors",
-                "seats",
-                "color",
-                "registered",
-                "countryOfOrigin",
-                "condition",
-            }
-        )
-        assert model_input["listing"]["vehicle"]["version"] == "CLA 250 4MATIC"
-        assert model_input["listing"]["vehicle"]["drive"] == "4x4"
-        assert model_input["listing"]["vehicle"]["color"] == "White"
-        assert model_input["vehicleReport"]["timeline"]["eventCount"] == 500
-        assert len(model_input["vehicleReport"]["timeline"]["events"]) == 8
-        assert model_input["vehicleReport"]["timeline"]["eventTypes"] == ["registration", "inspection", "sale"]
-        assert model_input["vehicleReport"]["autodnaSummary"] == {"events": 3}
-        assert "raw" not in json.dumps(model_input["vehicleReport"], ensure_ascii=False)
+        assert model_input["listing"]["search"]["title"] == "To check"
+        assert model_input["listing"]["search"]["price"] == {"value": "43000", "currencyCode": "PLN"}
+        assert model_input["listing"]["listing"] == {
+            "description": huge_text,
+        }
+        assert model_input["vehicleReport"]["summary"] == {
+            "make": "Mercedes-Benz",
+            "model": "CLA",
+            "variant": "250",
+            "modelYear": "2014",
+            "fuelType": "Petrol",
+            "engineCapacity": "1991",
+            "enginePower": "211",
+            "bodyType": "Sedan",
+            "color": "White",
+            "ownersCount": 2,
+            "coOwnersCount": 0,
+            "lastOwnershipChange": "2021-06-04",
+            "autodnaAvailable": True,
+            "carfaxAvailable": True,
+            "autodnaUnavailable": False,
+            "carfaxUnavailable": False,
+        }
+        assert model_input["vehicleReport"]["report"]["autodna_data"]["raw"] == huge_text
+        assert len(model_input["vehicleReport"]["report"]["timeline_data"]["timelineData"]["events"]) == 500
 
 
 def test_red_flag_analysis_becomes_stale_after_report_is_fetched(monkeypatch, tmp_path: Path) -> None:
@@ -1299,7 +1298,11 @@ def test_red_flag_model_input_without_report_does_not_use_encrypted_parameters_d
         model_input = service._build_red_flag_model_input(request_id, "4")
 
         assert model_input["vehicleReport"] is None
-        assert model_input["listing"]["vehicle"].get("identifiers") is None
+        assert model_input["listing"]["listing"]["details"][-3:] == [
+            {"label": "VIN", "value": "WDDSJ4EB2EN056917"},
+            {"label": "Registration", "value": "DLU8613F"},
+            {"label": "First registration", "value": "2014-01-01"},
+        ]
 
 
 def test_red_flag_model_input_without_report_keeps_trusted_listing_identifiers(tmp_path: Path) -> None:
@@ -1336,11 +1339,38 @@ def test_red_flag_model_input_without_report_keeps_trusted_listing_identifiers(t
         model_input = service._build_red_flag_model_input(request_id, "4")
 
         assert model_input["vehicleReport"] is None
-        assert model_input["listing"]["vehicle"]["identifiers"] == {
-            "vin": "WDDSJ4EB2EN056917",
-            "registrationNumber": "DLU8613F",
-            "firstRegistrationDate": "2014-01-01",
-        }
+        assert model_input["listing"]["listing"]["details"][-3:] == [
+            {"label": "VIN", "value": "WDDSJ4EB2EN056917"},
+            {"label": "Registration", "value": "DLU8613F"},
+            {"label": "First registration", "value": "2014-01-01"},
+        ]
+
+
+def test_red_flag_model_input_marks_vehicle_report_unavailable_when_mapped_payload_is_empty(tmp_path: Path) -> None:
+    service = ParserAppService(
+        tmp_path,
+        parser_runner=FakeParserRunner(),
+        listing_page_fetcher=_fake_listing_page,
+        parser_options={},
+    )
+    app = create_app(data_dir=tmp_path, service=service)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/requests",
+            json={"url": "https://www.otomoto.pl/osobowe?search%5Border%5D=created_at_first%3Adesc"},
+        )
+        request_id = create_response.json()["item"]["id"]
+        _wait_until_ready(client, request_id)
+
+        vehicle_report_path = service._vehicle_report_path(request_id, "4")
+        vehicle_report_path.parent.mkdir(parents=True, exist_ok=True)
+        vehicle_report_path.write_text(json.dumps({"identity": {"vin": "VIN-ONLY"}}), encoding="utf-8")
+
+        model_input = service._build_red_flag_model_input(request_id, "4")
+
+        assert model_input["vehicleReport"] is None
+        assert model_input["analysisContext"]["vehicleReportAvailable"] is False
 
 
 def test_red_flag_model_input_prefers_detail_page_parameter_over_search_result(tmp_path: Path) -> None:
@@ -1362,8 +1392,10 @@ def test_red_flag_model_input_prefers_detail_page_parameter_over_search_result(t
 
         model_input = service._build_red_flag_model_input(request_id, "4")
 
-        assert model_input["listing"]["vehicle"]["model"] == "CLA"
-        assert model_input["listing"]["vehicle"]["version"] == "250"
+        assert model_input["listing"]["listing"]["details"][:2] == [
+            {"label": "Model", "value": "CLA"},
+            {"label": "Version", "value": "250"},
+        ]
 
 
 def test_red_flag_model_input_state_uses_single_report_snapshot_for_payload_and_cache_key(monkeypatch, tmp_path: Path) -> None:
@@ -1412,7 +1444,7 @@ def test_red_flag_model_input_state_uses_single_report_snapshot_for_payload_and_
 
         assert len(seen_vehicle_report_reads) == 1
         assert report_snapshot_id == expected_snapshot_id
-        assert model_input["vehicleReport"]["technicalData"]["basicData"]["model"] == "One"
+        assert model_input["vehicleReport"]["report"]["technical_data"]["technicalData"]["basicData"]["model"] == "One"
         assert "vehicleReportState" not in model_input
 
 
@@ -1459,13 +1491,8 @@ def test_run_red_flag_analysis_stores_snapshot_from_model_input_state(monkeypatc
                         },
                         "vehicleReportAvailable": True,
                     },
-                    "listing": {
-                        "title": "To check",
-                        "vehicle": {"model": "Runtime"},
-                    },
-                    "vehicleReport": {
-                        "technicalData": {"basicData": {"model": "Runtime"}},
-                    },
+                    "listing": {"search": {"title": "To check"}, "listing": {"details": [{"label": "Model", "value": "Runtime"}]}},
+                    "vehicleReport": {"report": {"technical_data": {"technicalData": {"basicData": {"model": "Runtime"}}}}},
                 },
                 expected_snapshot_id,
             )
@@ -1477,7 +1504,7 @@ def test_run_red_flag_analysis_stores_snapshot_from_model_input_state(monkeypatc
 
         def fake_analyzer(_: str, model_input: dict[str, Any], cancel_event: threading.Event) -> dict[str, Any]:
             assert cancel_event.is_set() is False
-            assert model_input["vehicleReport"]["technicalData"]["basicData"]["model"] == "Runtime"
+            assert model_input["vehicleReport"]["report"]["technical_data"]["technicalData"]["basicData"]["model"] == "Runtime"
             assert "vehicleReportState" not in model_input
             return {
                 "summary": "Stored snapshot matches model input.",
@@ -1562,13 +1589,8 @@ def test_run_red_flag_analysis_suppresses_cache_write_when_report_snapshot_chang
                         },
                         "vehicleReportAvailable": True,
                     },
-                    "listing": {
-                        "title": "To check",
-                        "vehicle": {"model": "Initial"},
-                    },
-                    "vehicleReport": {
-                        "technicalData": {"basicData": {"model": "Initial"}},
-                    },
+                    "listing": {"search": {"title": "To check"}, "listing": {"details": [{"label": "Model", "value": "Initial"}]}},
+                    "vehicleReport": {"report": {"technical_data": {"technicalData": {"basicData": {"model": "Initial"}}}}},
                 },
                 initial_snapshot_id,
             )
@@ -1580,7 +1602,7 @@ def test_run_red_flag_analysis_suppresses_cache_write_when_report_snapshot_chang
 
         def fake_analyzer(_: str, model_input: dict[str, Any], cancel_event: threading.Event) -> dict[str, Any]:
             assert cancel_event.is_set() is False
-            assert model_input["vehicleReport"]["technicalData"]["basicData"]["model"] == "Initial"
+            assert model_input["vehicleReport"]["report"]["technical_data"]["technicalData"]["basicData"]["model"] == "Initial"
             return {
                 "summary": "Report changed during analysis.",
                 "redFlags": [],
