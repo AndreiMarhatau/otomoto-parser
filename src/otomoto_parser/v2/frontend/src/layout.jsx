@@ -30,33 +30,14 @@ export function IconButton({ title, onClick, href, disabled = false, tone = "def
   return <button type="button" className={className} title={title} aria-label={title} onClick={onClick} disabled={disabled}>{children}</button>;
 }
 
-export function Shell({ title, subtitle, children }) {
+export function Shell({ title, children }) {
   return (
     <div className="shell">
-      <div className="shell-glow shell-glow-a" />
-      <div className="shell-glow shell-glow-b" />
-      <header className="shell-topbar">
-        <div className="shell-brand">
-          <p className="eyebrow">Otomoto Parser</p>
-          <strong>Review workspace</strong>
-        </div>
-        <nav className="shell-nav" aria-label="Primary">
-          <Link to="/" className="hero-link">All requests</Link>
-          <Link to="/settings" className="hero-link">Settings</Link>
-        </nav>
+      <header className="hero">
+        <div><p className="eyebrow">Otomoto Parser</p><h1>{title}</h1></div>
+        <div className="hero-links"><Link to="/" className="hero-link">All requests</Link><Link to="/settings" className="hero-link">Settings</Link></div>
       </header>
-      <section className="hero">
-        <div className="hero-copy">
-          <span className="hero-badge">Inventory triage and reporting</span>
-          <h1>{title}</h1>
-          {subtitle ? <p className="hero-subtitle">{subtitle}</p> : null}
-        </div>
-        <aside className="hero-aside">
-          <span>Workspace scope</span>
-          <strong>Requests, categorization, distance context, and vehicle reports in one flow.</strong>
-        </aside>
-      </section>
-      <main className="shell-content">{children}</main>
+      {children}
     </div>
   );
 }

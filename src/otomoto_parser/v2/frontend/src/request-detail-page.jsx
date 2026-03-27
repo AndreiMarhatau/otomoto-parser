@@ -32,34 +32,21 @@ export function RequestDetailPage() {
   if (loading && !item) return <Shell title="Request details"><p className="muted">Loading request...</p></Shell>;
   if (error && !item) return <Shell title="Request details"><p className="error-text">{error.message}</p></Shell>;
   return (
-    <Shell title="Request details" subtitle="Inspect the parser run, confirm outputs, and reopen the categorized review workspace when the batch is ready.">
+    <Shell title="Request details">
       <Breadcrumbs items={[{ label: "Requests", to: "/" }, { label: `Request ${item.id}` }]} />
-      <section className="request-detail-layout">
-        <div className="panel panel-detail-main">
-          <div className="detail-head">
-            <div className="detail-source"><p className="eyebrow">Source link</p><a href={item.sourceUrl} target="_blank" rel="noreferrer" className="link-break">{item.sourceUrl}</a></div>
-            <div className="request-row-controls"><StatusPill status={item.status} /><IconButton title="Delete request" tone="danger" disabled={inProgressStatuses.has(item.status)} onClick={removeRequest}><IconTrash /></IconButton></div>
-          </div>
-          <div className="metric-grid"><Metric label="Pages completed" value={item.pagesCompleted} /><Metric label="Listings written" value={item.resultsWritten} /><Metric label="Results" value={item.resultsReady ? "Ready" : "Not ready"} /><Metric label="Excel" value={item.excelReady ? "Ready" : "Pending"} /></div>
-          <div className="detail-status-card">
-            <p className="eyebrow">Parser status</p>
-            <p className="progress-box">{item.progressMessage}</p>
-            {item.error ? <p className="error-text">{item.error}</p> : null}
-          </div>
+      <section className="panel">
+        <div className="detail-head">
+          <div><p className="muted">Source link</p><a href={item.sourceUrl} target="_blank" rel="noreferrer" className="link-break">{item.sourceUrl}</a></div>
+          <div className="request-row-controls"><StatusPill status={item.status} /><IconButton title="Delete request" tone="danger" disabled={inProgressStatuses.has(item.status)} onClick={removeRequest}><IconTrash /></IconButton></div>
         </div>
-        <aside className="panel panel-detail-sidebar">
-          <div className="section-heading">
-            <p className="eyebrow">Next actions</p>
-            <h2>Continue this run</h2>
-            <p className="muted">Choose whether to gather more stock, reset the run, download the export, or jump back into the review board.</p>
-          </div>
-          <div className="detail-actions detail-actions-stacked">
-            <button onClick={() => trigger(`/api/requests/${item.id}/resume`)} disabled={inProgressStatuses.has(item.status)}>Resume and gather new</button>
-            <button className="button-secondary" onClick={() => trigger(`/api/requests/${item.id}/redo`)} disabled={inProgressStatuses.has(item.status)}>Redo from scratch</button>
-            <a className={`button-link ${!item.excelReady ? "button-disabled" : ""}`} href={item.excelReady ? `/api/requests/${item.id}/excel` : undefined}>Download Excel</a>
-            <Link className={`button-link button-link-secondary ${!item.resultsReady ? "button-disabled" : ""}`} to={item.resultsReady ? `/requests/${item.id}/results` : "#"}>Open results</Link>
-          </div>
-        </aside>
+        <div className="metric-grid"><Metric label="Pages completed" value={item.pagesCompleted} /><Metric label="Listings written" value={item.resultsWritten} /><Metric label="Results" value={item.resultsReady ? "Ready" : "Not ready"} /><Metric label="Excel" value={item.excelReady ? "Ready" : "Pending"} /></div>
+        <div className="detail-actions">
+          <button onClick={() => trigger(`/api/requests/${item.id}/resume`)} disabled={inProgressStatuses.has(item.status)}>Resume and gather new</button>
+          <button className="button-secondary" onClick={() => trigger(`/api/requests/${item.id}/redo`)} disabled={inProgressStatuses.has(item.status)}>Redo from scratch</button>
+          <a className={`button-link ${!item.excelReady ? "button-disabled" : ""}`} href={item.excelReady ? `/api/requests/${item.id}/excel` : undefined}>Download Excel</a>
+          <Link className={`button-link ${!item.resultsReady ? "button-disabled" : ""}`} to={item.resultsReady ? `/requests/${item.id}/results` : "#"}>Open results</Link>
+        </div>
+        <p className="progress-box">{item.progressMessage}</p>{item.error ? <p className="error-text">{item.error}</p> : null}
       </section>
     </Shell>
   );

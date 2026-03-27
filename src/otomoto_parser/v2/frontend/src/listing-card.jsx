@@ -9,40 +9,21 @@ export function ListingCard({ item, assignableCategories, categoryBusy, onAssign
   const reportStatus = item.vehicleReport?.status;
   const reportStateTitle = reportTitle(reportStatus, item.vehicleReport);
   const specs = listingSpecs(item, createdAt);
-  const keySpecs = specs.slice(0, 4);
-  const secondarySpecs = specs.slice(4);
   return (
     <article className={categoryPickerOpen ? "listing-card listing-card-overlay-open" : "listing-card"}>
       <a href={item.url} target="_blank" rel="noreferrer" className="listing-card-anchor" aria-label={`Open listing: ${item.title || "listing"}`} />
       <div className="listing-card-body">
-        <div className="listing-image-wrap">
-          {item.imageUrl ? <img src={item.imageUrl} alt={item.title} className="listing-image" /> : <div className="listing-image placeholder" />}
-          <div className="listing-image-badge">{item.category}</div>
-        </div>
+        <div className="listing-image-wrap">{item.imageUrl ? <img src={item.imageUrl} alt={item.title} className="listing-image" /> : <div className="listing-image placeholder" />}</div>
         <div className="listing-content">
-          <div className="listing-heading">
-            <div className="listing-topline">
-              <div className="listing-title-block">
-                <p className="listing-kicker">{item.countryOrigin || (item.dataVerified ? "Verified inventory" : "Needs verification")}</p>
-                <h3>{item.title}</h3>
-                <p className="listing-subtitle">{item.shortDescription || "No short description."}</p>
-              </div>
-            </div>
-          </div>
+          <div className="listing-topline"><h3>{item.title}</h3><strong>{item.price ? `${item.price.toLocaleString("pl-PL")} ${item.priceCurrency}` : "—"}</strong></div>
+          <p className="muted">{item.shortDescription || "No short description."}</p>
+          <ListingActions item={item} assignableCategories={assignableCategories} categoryBusy={categoryBusy} onAssignCategories={onAssignCategories} onCreateCategory={onCreateCategory} onOpenReport={onOpenReport} onOpenChange={setCategoryPickerOpen} reportStatus={reportStatus} reportStateTitle={reportStateTitle} />
           <div className="listing-place-row">
             {item.location ? <button type="button" className="listing-place-button chip-interactive" title={`Preview ${item.location} on map`} onClick={() => onOpenLocation({ title: item.title, location: item.location })}>{item.location}</button> : <span className="listing-place-text">No location</span>}
             <span className="listing-distance-text">{distanceLabel}</span>
           </div>
-          <div className="chip-row">{secondarySpecs.map((spec) => <span key={spec.label} className={`chip chip-${spec.tone}`}><span className="chip-label">{spec.label}</span><span>{spec.value}</span></span>)}</div>
+          <div className="chip-row">{specs.map((spec) => <span key={spec.label} className={`chip chip-${spec.tone}`}><span className="chip-label">{spec.label}</span><span>{spec.value}</span></span>)}</div>
         </div>
-        <aside className="listing-rail">
-          <div className="listing-price-block">
-            <span>Ask</span>
-            <strong>{item.price ? `${item.price.toLocaleString("pl-PL")} ${item.priceCurrency}` : "—"}</strong>
-          </div>
-          <div className="listing-summary-grid">{keySpecs.map((spec) => <div key={spec.label} className="listing-summary-card"><span>{spec.label}</span><strong>{spec.value}</strong></div>)}</div>
-          <ListingActions item={item} assignableCategories={assignableCategories} categoryBusy={categoryBusy} onAssignCategories={onAssignCategories} onCreateCategory={onCreateCategory} onOpenReport={onOpenReport} onOpenChange={setCategoryPickerOpen} reportStatus={reportStatus} reportStateTitle={reportStateTitle} />
-        </aside>
       </div>
     </article>
   );
@@ -51,16 +32,9 @@ export function ListingCard({ item, assignableCategories, categoryBusy, onAssign
 function ListingActions({ item, assignableCategories, categoryBusy, onAssignCategories, onCreateCategory, onOpenReport, onOpenChange, reportStatus, reportStateTitle }) {
   return (
     <div className="listing-action-row">
-      <div className="listing-action-copy">
-        <span>Reviewer actions</span>
-        <p>Save this listing into custom buckets or open the vehicle history workflow.</p>
-      </div>
       <CategoryPicker item={item} categories={assignableCategories} busy={categoryBusy} onCommit={onAssignCategories} onCreateCategory={onCreateCategory} onOpenChange={onOpenChange} />
       <button type="button" className="listing-report-button chip-interactive" title="Open vehicle report" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onOpenReport(item); }}>
-        <IconReport />
-        <span>Vehicle report</span>
-        {reportStatus === "success" ? <span className="listing-report-state listing-report-state-success" title={reportStateTitle}><IconCheckBadge /></span> : null}
-        {reportStatus === "failed" ? <span className="listing-report-state listing-report-state-failed" title={reportStateTitle}><IconXBadge /></span> : null}
+        <IconReport /><span>Vehicle report</span>{reportStatus === "success" ? <span className="listing-report-state listing-report-state-success" title={reportStateTitle}><IconCheckBadge /></span> : null}{reportStatus === "failed" ? <span className="listing-report-state listing-report-state-failed" title={reportStateTitle}><IconXBadge /></span> : null}
       </button>
     </div>
   );

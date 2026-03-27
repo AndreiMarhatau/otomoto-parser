@@ -14,9 +14,6 @@ export function RequestListPage() {
   const [error, setError] = React.useState(null);
   const { data, loading, reload } = usePolling(() => api("/api/requests"), true, "/api/requests");
   const items = data?.items || [];
-  const readyCount = items.filter((item) => item.status === "ready").length;
-  const activeCount = items.filter((item) => inProgressStatuses.has(item.status)).length;
-  const listingCount = items.reduce((total, item) => total + (item.resultsWritten || 0), 0);
 
   async function submit(event) {
     event.preventDefault();
@@ -45,20 +42,10 @@ export function RequestListPage() {
   }
 
   return (
-    <Shell title="Version 2 workspace" subtitle="Parse live Otomoto searches, triage newly fetched stock, and keep every run in a reviewable history.">
-      <section className="hero-metrics">
-        <MetricCard label="Requests in desk" value={items.length} tone="neutral" />
-        <MetricCard label="Ready for review" value={readyCount} tone="positive" />
-        <MetricCard label="Currently running" value={activeCount} tone="warning" />
-        <MetricCard label="Listings captured" value={listingCount} tone="accent" />
-      </section>
-      <section className="request-dashboard">
-        <div className="panel panel-emphasis">
-          <div className="section-heading">
-            <p className="eyebrow">Start a run</p>
-            <h2>Create request</h2>
-            <p className="muted">Paste an Otomoto search URL. The backend starts parsing immediately, stores every artifact, and sends the run into the review queue.</p>
-          </div>
+    <Shell title="Version 2 workspace">
+      <section className="panel panel-grid">
+        <div className="panel-block">
+          <h2>Create request</h2><p className="muted">Paste an Otomoto search URL. The backend starts parsing immediately and keeps progress in history.</p>
           <form className="request-form" onSubmit={submit}>
             <textarea value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://www.otomoto.pl/osobowe/..." rows={5} required />
             <div className="form-actions">
@@ -67,19 +54,9 @@ export function RequestListPage() {
             </div>
             {error ? <p className="error-text">{error}</p> : null}
           </form>
-          <div className="workflow-strip">
-            <WorkflowStep step="01" title="Parse" description="Run the search and persist raw results, state, and assets." />
-            <WorkflowStep step="02" title="Review" description="Open the categorized board and move listings into your working buckets." />
-            <WorkflowStep step="03" title="Report" description="Check location context, red flags, and vehicle history before export." />
-          </div>
         </div>
-        <div className="panel">
-          <div className="section-heading">
-            <p className="eyebrow">Review queue</p>
-            <h2>History</h2>
-            <p className="muted">Every request keeps progress, categorized output, Excel export, and the latest parser status in one place.</p>
-          </div>
-          {loading ? <p className="muted">Loading requests...</p> : null}{!loading && items.length === 0 ? <p className="muted">No requests yet.</p> : null}
+        <div className="panel-block">
+          <h2>History</h2>{loading ? <p className="muted">Loading requests...</p> : null}{!loading && items.length === 0 ? <p className="muted">No requests yet.</p> : null}
           <div className="request-list">{items.map((item) => <RequestRow key={item.id} item={item} navigate={navigate} onRemove={removeRequest} />)}</div>
         </div>
       </section>
@@ -87,34 +64,12 @@ export function RequestListPage() {
   );
 }
 
-function MetricCard({ label, value, tone }) {
-  return (
-    <div className={`hero-metric hero-metric-${tone}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function WorkflowStep({ step, title, description }) {
-  return (
-    <article className="workflow-step">
-      <span>{step}</span>
-      <strong>{title}</strong>
-      <p>{description}</p>
-    </article>
-  );
-}
-
 function RequestRow({ item, navigate, onRemove }) {
   return (
     <article key={item.id} className="request-row" role="link" tabIndex={0} onClick={() => navigate(`/requests/${item.id}`)} onKeyDown={(event) => handleRowKeyDown(event, item.id, navigate)}>
-        <div className="request-row-top">
+      <div className="request-row-top">
         <div className="request-row-main">
-          <div className="request-row-labels">
-            <span className="request-row-label">Run id</span>
-            <strong className="request-row-title">{`Request ${item.id}`}</strong>
-          </div>
+          <strong className="request-row-title">{`Request ${item.id}`}</strong>
           <p>{item.progressMessage}</p>
           <div className="request-row-meta"><span>{item.resultsWritten} listings</span><span>{item.pagesCompleted} pages</span><span>{new Date(item.createdAt).toLocaleString()}</span></div>
         </div>
