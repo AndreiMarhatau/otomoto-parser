@@ -33,7 +33,7 @@ export function RequestResultsPage() {
   usePollingEffects({ requestId, reportState, redFlagState, setRedFlagState, loadRedFlagState, updateVehicleReportResultItem: dataState.updateVehicleReportResultItem });
 
   return (
-    <Shell title="Results" subtitle="Compact listing review with quieter controls, stronger hierarchy, and less friction between categories, cards, and reports.">
+    <Shell title="Results" subtitle="Compact listing review with flatter sections, quieter controls, and a denser report flow.">
       <Breadcrumbs items={[{ label: "Requests", to: "/" }, dataState.request ? { label: `Request ${dataState.request.id}`, to: `/requests/${dataState.request.id}` } : { label: "Request" }, { label: "Results" }]} />
       <section className="panel">
         {dataState.requestLoading ? <p className="muted">Loading request...</p> : null}

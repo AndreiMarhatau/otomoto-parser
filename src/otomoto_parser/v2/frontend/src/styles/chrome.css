@@ -1,7 +1,7 @@
 .shell {
   width: min(1240px, calc(100vw - 32px));
   margin: 0 auto;
-  padding: 1.25rem 0 3rem;
+  padding: 1rem 0 2.5rem;
 }
 
 .topbar {
@@ -9,7 +9,7 @@
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
-  margin-bottom: 1.5rem;
+  margin-bottom: 1.25rem;
 }
 
 .brand-mark {
@@ -52,7 +52,7 @@
   padding: 0.25rem;
   border-radius: 999px;
   border: 1px solid var(--border);
-  background: var(--panel);
+  background: transparent;
 }
 
 .topbar-link {
@@ -74,7 +74,7 @@
   justify-content: space-between;
   align-items: end;
   gap: 1rem;
-  margin-bottom: 1.25rem;
+  margin-bottom: 1rem;
 }
 
 .page-header-copy {
@@ -96,19 +96,20 @@
   line-height: 1.5;
 }
 
+.page-header-actions,
+.page-header-actions-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 24px;
-  padding: 1.2rem;
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(10px);
-}
-
-.panel-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
-  gap: 1rem;
+  border-radius: 20px;
+  padding: 1rem;
+  box-shadow: none;
 }
 
 .panel-block {
@@ -117,9 +118,8 @@
   gap: 1rem;
 }
 
-.panel-block-emphasis {
-  padding-right: 0.4rem;
-  border-right: 1px solid var(--border);
+.panel-list {
+  gap: 0.8rem;
 }
 
 .section-heading {
@@ -140,23 +140,14 @@
 @media (max-width: 920px) {
   .shell {
     width: min(100vw - 24px, 1240px);
-    padding-top: 0.9rem;
+    padding-top: 0.75rem;
   }
 
   .topbar,
-  .page-header {
+  .page-header,
+  .page-header-actions,
+  .page-header-actions-group {
     align-items: flex-start;
     flex-direction: column;
-  }
-
-  .panel-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .panel-block-emphasis {
-    padding-right: 0;
-    padding-bottom: 1rem;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
   }
 }

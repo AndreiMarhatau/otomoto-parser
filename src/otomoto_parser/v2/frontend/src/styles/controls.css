@@ -2,8 +2,8 @@ button,
 .button-link {
   appearance: none;
   border: 1px solid transparent;
-  border-radius: 12px;
-  padding: 0.75rem 1rem;
+  border-radius: 999px;
+  padding: 0.72rem 1rem;
   font: inherit;
   font-weight: 600;
   line-height: 1.2;
@@ -11,19 +11,7 @@ button,
   text-decoration: none;
   background: var(--accent);
   color: var(--accent-contrast);
-  transition:
-    background 140ms ease,
-    border-color 140ms ease,
-    color 140ms ease,
-    transform 140ms ease,
-    box-shadow 140ms ease,
-    opacity 140ms ease;
-}
-
-button:hover,
-.button-link:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-soft);
+  transition: background 40ms linear, border-color 40ms linear, color 40ms linear, opacity 40ms linear;
 }
 
 button:disabled,
@@ -53,7 +41,7 @@ button:disabled,
   padding: 0;
   display: inline-grid;
   place-items: center;
-  border-radius: 12px;
+  border-radius: 999px;
 }
 
 .icon-button svg,
@@ -73,7 +61,7 @@ input,
 select {
   width: 100%;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 16px;
   padding: 0.85rem 0.95rem;
   font: inherit;
   color: var(--text);
@@ -159,13 +147,5 @@ button:focus-visible,
 }
 
 .chip-interactive {
-  transition:
-    background 140ms ease,
-    border-color 140ms ease,
-    color 140ms ease,
-    transform 140ms ease;
-}
-
-.chip-interactive:hover {
-  transform: translateY(-1px);
+  transition: background 40ms linear, border-color 40ms linear, color 40ms linear;
 }

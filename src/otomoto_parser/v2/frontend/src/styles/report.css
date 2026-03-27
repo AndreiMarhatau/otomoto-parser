@@ -1,6 +1,6 @@
 .analysis-result {
   display: grid;
-  gap: 0.8rem;
+  gap: 0.7rem;
 }
 
 .analysis-result p {
@@ -9,19 +9,19 @@
 
 .analysis-group {
   display: grid;
-  gap: 0.4rem;
+  gap: 0.3rem;
 }
 
 .analysis-group h4 {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 0.88rem;
 }
 
 .analysis-list {
   margin: 0;
-  padding-left: 1.1rem;
+  padding-left: 1rem;
   display: grid;
-  gap: 0.38rem;
+  gap: 0.22rem;
 }
 
 .analysis-list-critical {
@@ -38,16 +38,16 @@
 
 .report-pairs {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 0.7rem;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.55rem;
 }
 
 .report-pair {
   display: grid;
-  gap: 0.28rem;
-  padding: 0.85rem 0.9rem;
+  gap: 0.2rem;
+  padding: 0.65rem 0.75rem;
   border-radius: 14px;
-  background: var(--panel-strong);
+  background: var(--panel-muted);
   border: 1px solid var(--border);
 }
 
@@ -62,32 +62,32 @@
 
 .report-tree-block {
   display: grid;
-  gap: 0.6rem;
-  margin-top: 0.9rem;
+  gap: 0.4rem;
+  margin-top: 0.55rem;
 }
 
 .report-tree-grid,
 .report-tree-array,
 .report-tree-nested-list {
   display: grid;
-  gap: 0.8rem;
+  gap: 0.55rem;
 }
 
 .report-tree-value {
-  padding: 0.8rem 0.9rem;
-  border-radius: 14px;
-  background: var(--panel-strong);
+  padding: 0.65rem 0.75rem;
+  border-radius: 12px;
+  background: var(--panel-muted);
   border: 1px solid var(--border);
 }
 
 .report-form-field {
   display: grid;
-  gap: 0.4rem;
+  gap: 0.3rem;
 }
 
 .report-form-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.65rem;
-  margin-top: 1rem;
+  gap: 0.55rem;
+  margin-top: 0.8rem;
 }
