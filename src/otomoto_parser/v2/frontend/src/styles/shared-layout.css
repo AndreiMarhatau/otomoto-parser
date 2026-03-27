@@ -1,0 +1,53 @@
+.form-actions,
+.detail-actions,
+.tab-row,
+.chip-row,
+.request-row-meta,
+.detail-head,
+.metric-grid,
+.breadcrumbs,
+.results-controls,
+.results-footer,
+.pagination,
+.modal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+}
+
+.request-form,
+.request-list,
+.listing-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.request-list {
+  align-content: start;
+}
+
+.muted,
+.request-row p,
+.metric span,
+.panel p {
+  color: var(--text-muted);
+}
+
+.progress-box,
+.error-text {
+  margin: 0;
+  padding: 1rem 1.05rem;
+  border-radius: 18px;
+}
+
+.progress-box {
+  border: 1px solid color-mix(in srgb, var(--warning) 20%, transparent);
+  background: color-mix(in srgb, var(--warning) 12%, var(--bg-soft));
+  color: var(--text);
+}
+
+.error-text {
+  border: 1px solid color-mix(in srgb, var(--danger) 24%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, var(--bg-soft));
+  color: var(--danger);
+}

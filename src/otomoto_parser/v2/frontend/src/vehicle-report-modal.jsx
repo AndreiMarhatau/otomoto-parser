@@ -1,6 +1,6 @@
 import React from "react";
 
-import { buildVehicleReportMeta, normalizeLookupText } from "./formatters";
+import { normalizeLookupText } from "./formatters";
 import { IconClose, IconExternal, IconRefresh } from "./icons";
 import { IconButton } from "./layout";
 import { VehicleAnalysisSection, VehicleLookupSection, VehicleReportDetails } from "./vehicle-report-sections";
@@ -32,10 +32,42 @@ export function VehicleReportModal({ state, redFlagState, settings, onClose, onR
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-panel modal-panel-report" onClick={(event) => event.stopPropagation()}>
         <ModalHeader item={item} onClose={onClose} onRegenerate={onRegenerate} disabled={isModalActionDisabled(busyFlags, data?.status)} />
-        <div className="modal-meta"><span className="chip chip-place"><span className="chip-label">Status</span><span>{statusLabel(data, busyFlags.loading)}</span></span><span className="chip chip-time"><span className="chip-label">Retrieved</span><span>{retrievedAt || "Not retrieved yet"}</span></span></div>
-        <ModalMessages progressMessage={progressMessage} error={error} dataError={data?.error} />
-        <VehicleAnalysisSection analysisState={redFlagState} data={data} settings={settings} busyFlags={busyFlags} onStartRedFlags={onStartRedFlags} onCancelRedFlags={onCancelRedFlags} />
-        {showLookupForm ? <VehicleLookupSection data={data} identity={identity} lookupOptions={lookupOptions} activeLookup={activeLookup} registrationNumber={registrationNumber} dateFrom={dateFrom} dateTo={dateTo} setRegistrationNumber={setRegistrationNumber} setDateFrom={setDateFrom} setDateTo={setDateTo} busyFlags={busyFlags} onLookup={onLookup} onCancelLookup={onCancelLookup} /> : null}
+        <div className="report-dossier">
+          <aside className="report-dossier-side">
+            <div className="modal-meta modal-meta-grid"><span className="chip chip-place"><span className="chip-label">Status</span><span>{statusLabel(data, busyFlags.loading)}</span></span><span className="chip chip-time"><span className="chip-label">Retrieved</span><span>{retrievedAt || "Not retrieved yet"}</span></span><span className="chip chip-drive"><span className="chip-label">VIN</span><span>{identity.vin || "Not detected yet"}</span></span></div>
+            <section className="report-section report-section-compact report-section-dossier">
+              <p className="eyebrow">Identity snapshot</p>
+              <h3>Vehicle dossier</h3>
+              <div className="report-pairs report-pairs-compact">
+                {summaryEntries.slice(0, 6).map((entry) => <div key={entry.label} className="report-pair"><span>{entry.label}</span><strong>{entry.value}</strong></div>)}
+              </div>
+            </section>
+            <section className="report-section report-section-compact report-section-dossier">
+              <p className="eyebrow">Source status</p>
+              <h3>Coverage</h3>
+              <div className="report-pairs report-pairs-compact">
+                <div className="report-pair"><span>Historia Pojazdu API</span><strong>{report.api_version || "—"}</strong></div>
+                <div className="report-pair"><span>AutoDNA</span><strong>{summary.autodnaAvailable ? "Available" : summary.autodnaUnavailable ? "Unavailable" : "Waiting"}</strong></div>
+                <div className="report-pair"><span>Carfax</span><strong>{summary.carfaxAvailable ? "Available" : summary.carfaxUnavailable ? "Unavailable" : "Waiting"}</strong></div>
+                <div className="report-pair"><span>Advert id</span><strong>{identity.advertId || "—"}</strong></div>
+              </div>
+            </section>
+          </aside>
+          <div className="report-dossier-main">
+            <ModalMessages progressMessage={progressMessage} error={error} dataError={data?.error} />
+            <div className="report-modal-layout">
+              <div className="report-modal-main">
+                <section className="report-section report-section-dossier">
+                  <p className="eyebrow">Investigation workbench</p>
+                  <h3>Find red flags</h3>
+                  <p className="muted">Run the model, review missing registration data, and continue deeper checks from one focused pane.</p>
+                </section>
+              </div>
+            </div>
+            <VehicleAnalysisSection analysisState={redFlagState} data={data} settings={settings} busyFlags={busyFlags} onStartRedFlags={onStartRedFlags} onCancelRedFlags={onCancelRedFlags} />
+            {showLookupForm ? <VehicleLookupSection data={data} identity={identity} lookupOptions={lookupOptions} activeLookup={activeLookup} registrationNumber={registrationNumber} dateFrom={dateFrom} dateTo={dateTo} setRegistrationNumber={setRegistrationNumber} setDateFrom={setDateFrom} setDateTo={setDateTo} busyFlags={busyFlags} onLookup={onLookup} onCancelLookup={onCancelLookup} /> : null}
+          </div>
+        </div>
         {data?.report ? <VehicleReportDetails identity={identity} report={report} summary={summary} summaryEntries={summaryEntries} /> : null}
       </div>
     </div>
