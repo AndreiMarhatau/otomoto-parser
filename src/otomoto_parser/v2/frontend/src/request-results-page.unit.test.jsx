@@ -125,7 +125,6 @@ describe("RequestResultsPage unit branches", () => {
 
     expect(screen.getByText("Loading request...")).toBeTruthy();
     expect(screen.getByText("Still categorizing")).toBeTruthy();
-    expect(screen.getByText("Results stay hidden until categorization finishes.")).toBeTruthy();
   });
 
   it("renders empty categories, pagination, and local modal state changes", () => {
@@ -216,15 +215,16 @@ describe("RequestResultsPage unit branches", () => {
 
     renderPage();
 
-    fireEvent.click(screen.getByRole("button", { name: "Review 1" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Review (1)" }));
     fireEvent.click(screen.getByRole("button", { name: "Refresh location" }));
     fireEvent.click(screen.getByRole("button", { name: "Add category" }));
     fireEvent.click(screen.getByRole("button", { name: "Rename category" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete category" }));
-    fireEvent.change(screen.getByDisplayValue("12"), { target: { value: "24" } });
-    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
-    fireEvent.click(screen.getByRole("button", { name: "Previous page" }));
-    fireEvent.click(screen.getByRole("button", { name: "6" }));
+    fireEvent.mouseDown(screen.getByRole("combobox", { name: "Per page" }));
+    fireEvent.click(screen.getByRole("option", { name: "24" }));
+    fireEvent.click(screen.getByRole("button", { name: "Go to next page" }));
+    fireEvent.click(screen.getByRole("button", { name: "Go to previous page" }));
+    fireEvent.click(screen.getByRole("button", { name: "Go to page 6" }));
     fireEvent.click(screen.getByRole("button", { name: "open-location-listing-1" }));
     fireEvent.click(screen.getByRole("button", { name: "open-report-listing-1" }));
     fireEvent.click(screen.getByRole("button", { name: "close-location" }));
@@ -238,7 +238,7 @@ describe("RequestResultsPage unit branches", () => {
     expect(dataState.setActiveCategory).toHaveBeenCalledWith("Review");
     expect(dataState.setCurrentPage).toHaveBeenCalledWith(1);
     expect(dataState.setPageSize).toHaveBeenCalledWith(24);
-    expect(dataState.setCurrentPage).toHaveBeenCalledWith(expect.any(Function));
+    expect(dataState.setCurrentPage).toHaveBeenCalledWith(6);
     expect(createCategoryTab).toHaveBeenCalled();
     expect(renameActiveCategory).toHaveBeenCalled();
     expect(deleteActiveCategory).toHaveBeenCalled();

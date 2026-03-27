@@ -233,7 +233,7 @@ describe("RequestDetailPage polling", () => {
     expect(window.alert).toHaveBeenCalledWith("delete exploded");
   });
 
-  it("uses explicit compact variant classes for detail layout sections", async () => {
+  it("renders the compact detail actions and metrics", async () => {
     global.fetch = vi.fn(async (path, options = {}) => {
       if (path === "/api/requests/req-1" && (!options.method || options.method === "GET")) {
         return jsonResponse({
@@ -262,8 +262,9 @@ describe("RequestDetailPage polling", () => {
     );
 
     expect(await screen.findByText("Request req-1")).toBeTruthy();
-    expect(screen.getByText("Source").closest(".detail-head")?.classList.contains("detail-head-compact")).toBe(true);
-    expect(screen.getByRole("link", { name: "https://example.invalid/req-1" }).closest(".detail-source-row")?.classList.contains("detail-source-row-compact")).toBe(true);
-    expect(screen.getByRole("button", { name: "Resume and gather new" }).closest(".detail-actions")?.classList.contains("detail-actions-compact")).toBe(true);
+    expect(screen.getByRole("button", { name: "Resume and gather new" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Redo from scratch" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Results" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Excel" })).toBeTruthy();
   });
 });

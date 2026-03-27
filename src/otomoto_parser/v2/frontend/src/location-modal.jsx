@@ -1,4 +1,12 @@
 import React from "react";
+import {
+  Alert,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  Stack,
+  Typography,
+} from "@mui/material";
 
 import { IconClose, IconExternal, IconRefresh } from "./icons";
 import { IconButton } from "./layout";
@@ -43,21 +51,25 @@ export function LocationModal({ preview, onClose }) {
 
   if (!preview) return null;
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-panel" onClick={(event) => event.stopPropagation()}>
-        <div className="modal-head">
-          <div><p className="eyebrow">Map preview</p><h2>{preview.title}</h2><p className="muted">{preview.location}</p></div>
-          <div className="modal-head-actions">
-            <IconButton title="Open map" href={buildGoogleMapsUrl(preview.location)} tone="secondary"><IconExternal /></IconButton>
-            <IconButton title="Refresh preview" tone="secondary" onClick={() => setCoords(null)}><IconRefresh /></IconButton>
-            <IconButton title="Close preview" tone="secondary" onClick={onClose}><IconClose /></IconButton>
-          </div>
-        </div>
-        {loading ? <p className="progress-box">Loading map preview...</p> : null}
-        {geoError ? <p className="error-text">{geoError}</p> : null}
-        {coords ? <iframe title={`${preview.title} map`} className="map-frame" src={buildOsmEmbedUrl(coords.lat, coords.lon)} /> : null}
-        {userCoords ? <p className="muted">Your location is available for distance calculations.</p> : null}
-      </div>
-    </div>
+    <Dialog open onClose={onClose} fullWidth maxWidth="md">
+      <DialogTitle sx={{ pr: 16 }}>
+        <Typography component="div" variant="overline" color="text.secondary">Map preview</Typography>
+        <Typography component="div" variant="h5">{preview.title}</Typography>
+        <Typography component="div" variant="body2" color="text.secondary">{preview.location}</Typography>
+        <Stack direction="row" spacing={1} sx={{ position: "absolute", right: 16, top: 14 }}>
+          <IconButton title="Open map" href={buildGoogleMapsUrl(preview.location)} tone="secondary"><IconExternal /></IconButton>
+          <IconButton title="Refresh preview" tone="secondary" onClick={() => setCoords(null)}><IconRefresh /></IconButton>
+          <IconButton title="Close preview" tone="secondary" onClick={onClose}><IconClose /></IconButton>
+        </Stack>
+      </DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={2}>
+          {loading ? <Alert severity="info">Loading map preview...</Alert> : null}
+          {geoError ? <Alert severity="error">{geoError}</Alert> : null}
+          {coords ? <iframe title={`${preview.title} map`} src={buildOsmEmbedUrl(coords.lat, coords.lon)} style={{ width: "100%", minHeight: 420, border: 0, borderRadius: 16 }} /> : null}
+          {userCoords ? <Typography variant="body2" color="text.secondary">Your location is available for distance calculations.</Typography> : null}
+        </Stack>
+      </DialogContent>
+    </Dialog>
   );
 }

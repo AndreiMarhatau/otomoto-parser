@@ -1,11 +1,20 @@
 import React from "react";
+import {
+  Alert,
+  Button,
+  Card,
+  CardContent,
+  Divider,
+  Stack,
+  Typography,
+} from "@mui/material";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "./api";
 import { inProgressStatuses } from "./constants";
 import { compactSourceUrl, describeSourceUrl } from "./formatters";
-import { IconExternal, IconTrash } from "./icons";
-import { Breadcrumbs, IconButton, Metric, Shell, StatusPill } from "./layout";
+import { IconDownload, IconExternal, IconTrash } from "./icons";
+import { Breadcrumbs, Metric, Shell, StatusPill } from "./layout";
 import { usePolling } from "./use-polling";
 
 export function RequestDetailPage() {
@@ -30,36 +39,56 @@ export function RequestDetailPage() {
     }
   }
 
-  if (loading && !item) return <Shell title="Request details" subtitle="Inspect parser progress and reopen outputs from a single request."><p className="muted">Loading request...</p></Shell>;
-  if (error && !item) return <Shell title="Request details" subtitle="Inspect parser progress and reopen outputs from a single request."><p className="error-text">{error.message}</p></Shell>;
+  if (loading && !item) return <Shell title="Request details" subtitle="Inspect parser progress and reopen outputs from a single request."><Typography color="text.secondary">Loading request...</Typography></Shell>;
+  if (error && !item) return <Shell title="Request details" subtitle="Inspect parser progress and reopen outputs from a single request."><Alert severity="error">{error.message}</Alert></Shell>;
   const sourceMeta = describeSourceUrl(item.sourceUrl);
   return (
-    <Shell title={`Request ${item.id}`} subtitle="Single request status with the minimum controls needed to rerun, inspect outputs, or remove stored data.">
+    <Shell title={`Request ${item.id}`} subtitle="Single request status with compact controls for reruns, outputs, and cleanup.">
       <Breadcrumbs items={[{ label: "Requests", to: "/" }, { label: "Details" }]} />
-      <section className="panel">
-        <div className="detail-head detail-head-simple detail-head-compact">
-          <div className="detail-source">
-            <p className="section-kicker">Source</p>
-            <div className="detail-source-row detail-source-row-compact">
-              {sourceMeta.href ? (
-                <a href={sourceMeta.href} target="_blank" rel="noreferrer" className="detail-source-link" title={sourceMeta.displayValue} aria-label={sourceMeta.displayValue}>{compactSourceUrl(sourceMeta.displayValue, 64)}</a>
-              ) : (
-                <span className="detail-source-link" title={sourceMeta.displayValue}>{compactSourceUrl(sourceMeta.displayValue, 64)}</span>
-              )}
-              {sourceMeta.href ? <IconButton title="Open source URL" href={sourceMeta.href} tone="secondary"><IconExternal /></IconButton> : null}
-            </div>
-          </div>
-          <div className="request-row-controls"><StatusPill status={item.status} /><IconButton title="Delete request" tone="danger" disabled={inProgressStatuses.has(item.status)} onClick={removeRequest}><IconTrash /></IconButton></div>
-        </div>
-        <div className="metric-grid metric-grid-compact"><Metric label="Pages completed" value={item.pagesCompleted} /><Metric label="Listings written" value={item.resultsWritten} /><Metric label="Results" value={item.resultsReady ? "Ready" : "Not ready"} /><Metric label="Excel export" value={item.excelReady ? "Ready" : "Pending"} /></div>
-        <div className="detail-actions detail-actions-simple detail-actions-compact">
-          <button onClick={() => trigger(`/api/requests/${item.id}/resume`)} disabled={inProgressStatuses.has(item.status)}>Resume and gather new</button>
-          <button className="button-secondary" onClick={() => trigger(`/api/requests/${item.id}/redo`)} disabled={inProgressStatuses.has(item.status)}>Redo from scratch</button>
-          <Link className={`button-link button-link-secondary ${!item.resultsReady ? "button-disabled" : ""}`} to={item.resultsReady ? `/requests/${item.id}/results` : "#"}>Results</Link>
-          <a className={`button-link button-link-secondary ${!item.excelReady ? "button-disabled" : ""}`} href={item.excelReady ? `/api/requests/${item.id}/excel` : undefined}>Excel</a>
-        </div>
-        <p className="progress-box progress-box-simple">{item.progressMessage}</p>{item.error ? <p className="error-text">{item.error}</p> : null}
-      </section>
+      <Card variant="outlined">
+        <CardContent>
+          <Stack spacing={3}>
+            <Stack direction={{ xs: "column", lg: "row" }} spacing={2} justifyContent="space-between">
+              <Stack spacing={1}>
+                <Typography variant="overline" color="text.secondary">Source</Typography>
+                <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+                  {sourceMeta.href ? (
+                    <Button component="a" href={sourceMeta.href} target="_blank" rel="noreferrer" endIcon={<IconExternal />} variant="text">
+                      {compactSourceUrl(sourceMeta.displayValue, 64)}
+                    </Button>
+                  ) : (
+                    <Typography>{compactSourceUrl(sourceMeta.displayValue, 64)}</Typography>
+                  )}
+                  <StatusPill status={item.status} />
+                </Stack>
+              </Stack>
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={<IconTrash />}
+                disabled={inProgressStatuses.has(item.status)}
+                onClick={removeRequest}
+              >
+                Delete request
+              </Button>
+            </Stack>
+            <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap">
+              <Metric label="Pages completed" value={item.pagesCompleted} />
+              <Metric label="Listings written" value={item.resultsWritten} />
+              <Metric label="Results" value={item.resultsReady ? "Ready" : "Not ready"} />
+              <Metric label="Excel export" value={item.excelReady ? "Ready" : "Pending"} />
+            </Stack>
+            <Divider />
+            <Stack direction={{ xs: "column", md: "row" }} spacing={1.25} useFlexGap flexWrap="wrap">
+              <Button onClick={() => trigger(`/api/requests/${item.id}/resume`)} disabled={inProgressStatuses.has(item.status)} variant="contained">Resume and gather new</Button>
+              <Button onClick={() => trigger(`/api/requests/${item.id}/redo`)} disabled={inProgressStatuses.has(item.status)} variant="outlined">Redo from scratch</Button>
+              <Button component={Link} to={item.resultsReady ? `/requests/${item.id}/results` : "#"} disabled={!item.resultsReady} variant="text">Results</Button>
+              <Button component="a" href={item.excelReady ? `/api/requests/${item.id}/excel` : undefined} disabled={!item.excelReady} variant="outlined" startIcon={<IconDownload />}>Excel</Button>
+            </Stack>
+            <Alert severity={item.error ? "error" : "info"}>{item.error || item.progressMessage}</Alert>
+          </Stack>
+        </CardContent>
+      </Card>
     </Shell>
   );
 }

@@ -66,7 +66,6 @@ describe("RequestResultsPage geolocation bootstrap", () => {
       expect(navigator.permissions.query).toHaveBeenCalledWith({ name: "geolocation" });
       expect(getCurrentPosition).toHaveBeenCalledTimes(1);
     });
-    expect(await screen.findByText("Refresh location")).toBeTruthy();
   });
 
   it("shows blocked and does not request location when permissions.query resolves to denied", async () => {
@@ -237,7 +236,8 @@ describe("RequestResultsPage geolocation bootstrap", () => {
     });
     expect(await screen.findByText("Refresh location")).toBeTruthy();
 
-    fireEvent.change(screen.getByDisplayValue("12"), { target: { value: "24" } });
+    fireEvent.mouseDown(screen.getByRole("combobox", { name: "Per page" }));
+    fireEvent.click(await screen.findByRole("option", { name: "24" }));
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
@@ -247,6 +247,26 @@ describe("RequestResultsPage geolocation bootstrap", () => {
     });
     expect(await screen.findByText("Refresh location")).toBeTruthy();
     expect(await screen.findByText("Distance enabled")).toBeTruthy();
+  });
+
+  it("renders the results header page-size control as an MUI select", async () => {
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: undefined,
+    });
+    Object.defineProperty(navigator, "permissions", {
+      configurable: true,
+      value: undefined,
+    });
+
+    renderResultsPage();
+
+    const pageSizeControl = await screen.findByRole("combobox", { name: "Per page" });
+    expect(pageSizeControl.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.mouseDown(pageSizeControl);
+    expect(await screen.findByRole("listbox")).toBeTruthy();
+    expect(await screen.findByRole("option", { name: "24" })).toBeTruthy();
   });
 
   it("preserves denied classification when manual geolocation fails and follow-up permissions query rejects", async () => {
@@ -426,10 +446,12 @@ describe("RequestResultsPage geolocation bootstrap", () => {
     fireEvent.click(screen.getByRole("button", { name: "Warsaw" }));
     expect(await screen.findByText("Loading map preview...")).toBeTruthy();
     expect(await screen.findByTitle("Test listing map")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Save 1" }));
+    const saveButton = screen.getByRole("button", { name: /Saved \(1\)|Save/ });
+    fireEvent.click(saveButton);
     fireEvent.click(screen.getByRole("checkbox"));
-    fireEvent.mouseDown(document.body);
+    fireEvent.click(saveButton);
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
         "/api/requests/req-1/listings/listing-1/categories",

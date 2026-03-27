@@ -1,4 +1,15 @@
 import React from "react";
+import {
+  Box,
+  Button,
+  Card,
+  CardActionArea,
+  CardContent,
+  CardMedia,
+  Chip,
+  Stack,
+  Typography,
+} from "@mui/material";
 
 import { CategoryPicker } from "./category-picker";
 import { IconCheckBadge, IconReport, IconXBadge } from "./icons";
@@ -11,67 +22,125 @@ export function ListingCard({ item, assignableCategories, categoryBusy, onAssign
   const summarySpecs = listingSummarySpecs(item);
   const detailSpecs = listingDetailSpecs(item, createdAt);
   return (
-    <article className={categoryPickerOpen ? "listing-card listing-card-overlay-open" : "listing-card"}>
-      <a href={item.url} target="_blank" rel="noreferrer" className="listing-card-anchor" aria-label={`Open listing: ${item.title || "listing"}`} />
-      <div className="listing-card-body">
-        <div className="listing-image-wrap">{item.imageUrl ? <img src={item.imageUrl} alt={item.title} className="listing-image" /> : <div className="listing-image placeholder" />}</div>
-        <div className="listing-content">
-          <div className="listing-topline">
-            <div className="listing-heading">
-              <h3>{item.title}</h3>
-              <p className="muted">{item.shortDescription || "No short description."}</p>
-            </div>
-            <strong className="listing-price">{item.price ? `${item.price.toLocaleString("pl-PL")} ${item.priceCurrency}` : "—"}</strong>
-          </div>
-          <div className="chip-row chip-row-primary">{summarySpecs.map((spec) => <span key={spec.label} className={`chip chip-${spec.tone}`}><span className="chip-label">{spec.label}</span><span>{spec.value}</span></span>)}</div>
-          <ListingActions item={item} assignableCategories={assignableCategories} categoryBusy={categoryBusy} onAssignCategories={onAssignCategories} onCreateCategory={onCreateCategory} onOpenReport={onOpenReport} onOpenChange={setCategoryPickerOpen} reportStatus={reportStatus} reportStateTitle={reportStateTitle} />
-          <div className="listing-place-row">
-            {item.location ? <button type="button" className="listing-place-button" title={`Preview ${item.location} on map`} onClick={() => onOpenLocation({ title: item.title, location: item.location })}>{item.location}</button> : <span className="listing-place-text">No location</span>}
-            <span className="listing-distance-text">{distanceLabel}</span>
-          </div>
-          <div className="chip-row chip-row-secondary">{detailSpecs.map((spec) => <span key={spec.label} className={`chip chip-${spec.tone}`}><span className="chip-label">{spec.label}</span><span>{spec.value}</span></span>)}</div>
-        </div>
-      </div>
-    </article>
+    <Card sx={{ position: "relative", overflow: "visible" }}>
+      <CardActionArea component="a" href={item.url} target="_blank" rel="noreferrer" sx={{ alignItems: "stretch" }}>
+        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "176px 1fr" } }}>
+          {item.imageUrl ? (
+            <CardMedia component="img" image={item.imageUrl} alt={item.title} sx={{ height: { xs: 220, sm: "100%" } }} />
+          ) : (
+            <Box sx={{ minHeight: 180, bgcolor: "action.hover" }} />
+          )}
+          <CardContent sx={{ display: "grid", gap: 1.5 }}>
+            <Stack direction="row" spacing={2} justifyContent="space-between" alignItems="flex-start">
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="h6" sx={{ pr: 1 }}>{item.title}</Typography>
+                <Typography variant="body2" color="text.secondary">{item.shortDescription || "No short description."}</Typography>
+              </Box>
+              <Typography variant="h6" color="primary.main" sx={{ whiteSpace: "nowrap" }}>
+                {item.price ? `${item.price.toLocaleString("pl-PL")} ${item.priceCurrency}` : "—"}
+              </Typography>
+            </Stack>
+            <SpecRow specs={summarySpecs} />
+            <ListingActions
+              item={item}
+              assignableCategories={assignableCategories}
+              categoryBusy={categoryBusy}
+              onAssignCategories={onAssignCategories}
+              onCreateCategory={onCreateCategory}
+              onOpenReport={onOpenReport}
+              onOpenChange={setCategoryPickerOpen}
+              reportStatus={reportStatus}
+              reportStateTitle={reportStateTitle}
+            />
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1} justifyContent="space-between" alignItems={{ xs: "flex-start", sm: "center" }}>
+              {item.location ? (
+                <Button
+                  variant="text"
+                  size="small"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onOpenLocation({ title: item.title, location: item.location });
+                  }}
+                >
+                  {item.location}
+                </Button>
+              ) : (
+                <Typography variant="body2" color="text.secondary">No location</Typography>
+              )}
+              <Typography variant="body2" color="text.secondary">{distanceLabel}</Typography>
+            </Stack>
+            <SpecRow specs={detailSpecs} />
+          </CardContent>
+        </Box>
+      </CardActionArea>
+      {categoryPickerOpen ? <Box sx={{ position: "absolute", inset: 0, pointerEvents: "none" }} /> : null}
+    </Card>
   );
 }
 
-function ListingActions({ item, assignableCategories, categoryBusy, onAssignCategories, onCreateCategory, onOpenReport, onOpenChange, reportStatus, reportStateTitle }) {
+function ListingActions(props) {
+  const { item, assignableCategories, categoryBusy, onAssignCategories, onCreateCategory, onOpenReport, onOpenChange, reportStatus, reportStateTitle } = props;
   return (
-    <div className="listing-action-row">
-      <CategoryPicker item={item} categories={assignableCategories} busy={categoryBusy} onCommit={onAssignCategories} onCreateCategory={onCreateCategory} onOpenChange={onOpenChange} />
-      <button type="button" className="listing-report-button chip-interactive" title="Open vehicle report" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onOpenReport(item); }}>
-        <IconReport /><span>Vehicle report</span>{reportStatus === "success" ? <span className="listing-report-state listing-report-state-success" title={reportStateTitle}><IconCheckBadge /></span> : null}{reportStatus === "failed" ? <span className="listing-report-state listing-report-state-failed" title={reportStateTitle}><IconXBadge /></span> : null}
-      </button>
-    </div>
+    <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+      <CategoryPicker
+        item={item}
+        categories={assignableCategories}
+        busy={categoryBusy}
+        onCommit={onAssignCategories}
+        onCreateCategory={onCreateCategory}
+        onOpenChange={onOpenChange}
+      />
+      <Button
+        variant="outlined"
+        startIcon={<IconReport />}
+        aria-label="Vehicle report"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onOpenReport(item);
+        }}
+        endIcon={
+          reportStatus === "success" ? <IconCheckBadge color="success" aria-hidden="true" /> :
+          reportStatus === "failed" ? <IconXBadge color="error" aria-hidden="true" /> : null
+        }
+        title={reportStateTitle || "Open vehicle report"}
+      >
+        Vehicle report
+      </Button>
+    </Stack>
+  );
+}
+
+function SpecRow({ specs }) {
+  return (
+    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+      {specs.map((spec) => <Chip key={spec.label} size="small" label={`${spec.label}: ${spec.value}`} />)}
+    </Stack>
   );
 }
 
 function reportTitle(reportStatus, vehicleReport) {
-  if (reportStatus === "success") {
-    return `Report fetched ${vehicleReport?.retrievedAt ? new Date(vehicleReport.retrievedAt).toLocaleString() : ""}`.trim();
-  }
-  if (reportStatus === "failed") {
-    return vehicleReport?.lastAttemptAt ? `Previous fetch failed ${new Date(vehicleReport.lastAttemptAt).toLocaleString()}` : "Previous fetch failed";
-  }
+  if (reportStatus === "success") return `Report fetched ${vehicleReport?.retrievedAt ? new Date(vehicleReport.retrievedAt).toLocaleString() : ""}`.trim();
+  if (reportStatus === "failed") return vehicleReport?.lastAttemptAt ? `Previous fetch failed ${new Date(vehicleReport.lastAttemptAt).toLocaleString()}` : "Previous fetch failed";
   return null;
 }
 
 function listingSummarySpecs(item) {
   return [
-    ...(item.category === "Price evaluation out of range" && item.dataVerified === true ? [{ label: "Status", value: "Verified data", tone: "verified" }] : []),
-    { label: "Price eval", value: item.priceEvaluation || "No price evaluation", tone: "price" },
-    { label: "Year", value: item.year || "No year", tone: "year" },
-    { label: "Mileage", value: item.mileage || "No mileage", tone: "mileage" },
+    ...(item.category === "Price evaluation out of range" && item.dataVerified === true ? [{ label: "Status", value: "Verified data" }] : []),
+    { label: "Price eval", value: item.priceEvaluation || "No price evaluation" },
+    { label: "Year", value: item.year || "No year" },
+    { label: "Mileage", value: item.mileage || "No mileage" },
   ];
 }
 
 function listingDetailSpecs(item, createdAt) {
   return [
-    { label: "Engine", value: item.engineCapacity || "No engine capacity", tone: "engine" },
-    { label: "Power", value: item.enginePower || "No power", tone: "engine" },
-    { label: "Fuel", value: item.fuelType || "No fuel type", tone: "drive" },
-    { label: "Gearbox", value: item.transmission || "No transmission", tone: "drive" },
-    { label: "Created", value: createdAt, tone: "time" },
+    { label: "Engine", value: item.engineCapacity || "No engine capacity" },
+    { label: "Power", value: item.enginePower || "No power" },
+    { label: "Fuel", value: item.fuelType || "No fuel type" },
+    { label: "Gearbox", value: item.transmission || "No transmission" },
+    { label: "Created", value: createdAt },
   ];
 }

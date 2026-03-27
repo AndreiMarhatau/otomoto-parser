@@ -1,7 +1,16 @@
 import React from "react";
+import {
+  Alert,
+  Button,
+  Card,
+  CardContent,
+  Stack,
+  TextField,
+  Typography,
+} from "@mui/material";
 
 import { api } from "./api";
-import { Breadcrumbs, Shell } from "./layout";
+import { Breadcrumbs, Metric, Shell } from "./layout";
 import { usePolling } from "./use-polling";
 
 export function SettingsPage() {
@@ -26,38 +35,40 @@ export function SettingsPage() {
   }
 
   return (
-    <Shell title="Settings" subtitle="Keep model configuration present but visually quiet until it is needed.">
+    <Shell title="Settings" subtitle="Model configuration stays compact until you need it.">
       <Breadcrumbs items={[{ label: "Requests", to: "/" }, { label: "Settings" }]} />
-      <section className="panel settings-panel">
-        <div className="section-heading">
-          <div>
-            <p className="section-kicker">OpenAI</p>
-            <h2>Red-flag analysis</h2>
-          </div>
-          <p className="muted">Red-flag analysis uses GPT-5.4 with web search. Stored keys override `OPENAI_API_KEY` from the server environment.</p>
-        </div>
-        {loading ? <p className="muted">Loading settings...</p> : null}
-        {error ? <p className="error-text">{error.message}</p> : null}
-        {settings ? <SettingsStatus settings={settings} /> : null}
-        <form className="request-form" onSubmit={(event) => { event.preventDefault(); void persist(openaiApiKey); }}>
-          <label className="report-form-field"><span>OpenAI API key</span><input type="password" value={openaiApiKey} onChange={(event) => setOpenaiApiKey(event.target.value)} placeholder="sk-..." autoComplete="off" /></label>
-          <div className="form-actions">
-            <button type="submit" disabled={saving}>{saving ? "Saving..." : "Save key"}</button>
-            <button type="button" className="button-secondary" disabled={saving || !(settings?.openaiApiKeyStored || openaiApiKey)} onClick={() => void persist("")}>Clear stored key</button>
-          </div>
-          {saveError ? <p className="error-text">{saveError}</p> : null}
-        </form>
-      </section>
+      <Card variant="outlined">
+        <CardContent>
+          <Stack spacing={2.5}>
+            <div>
+              <Typography variant="overline" color="text.secondary">OpenAI</Typography>
+              <Typography variant="h5">Red-flag analysis</Typography>
+              <Typography variant="body2" color="text.secondary">Red-flag analysis uses GPT-5.4 with web search. Stored keys override `OPENAI_API_KEY` from the server environment.</Typography>
+            </div>
+            {loading ? <Typography color="text.secondary">Loading settings...</Typography> : null}
+            {error ? <Alert severity="error">{error.message}</Alert> : null}
+            {settings ? <SettingsStatus settings={settings} /> : null}
+            <Stack component="form" spacing={2} onSubmit={(event) => { event.preventDefault(); void persist(openaiApiKey); }}>
+              <TextField type="password" value={openaiApiKey} onChange={(event) => setOpenaiApiKey(event.target.value)} placeholder="sk-..." autoComplete="off" label="OpenAI API key" />
+              <Stack direction="row" spacing={1}>
+                <Button type="submit" disabled={saving} variant="contained">{saving ? "Saving..." : "Save key"}</Button>
+                <Button type="button" variant="outlined" disabled={saving || !(settings?.openaiApiKeyStored || openaiApiKey)} onClick={() => void persist("")}>Clear stored key</Button>
+              </Stack>
+              {saveError ? <Alert severity="error">{saveError}</Alert> : null}
+            </Stack>
+          </Stack>
+        </CardContent>
+      </Card>
     </Shell>
   );
 }
 
 function SettingsStatus({ settings }) {
   return (
-    <div className="settings-status-grid">
-      <div className="metric"><span>Configured</span><strong>{settings.openaiApiKeyConfigured ? "Yes" : "No"}</strong></div>
-      <div className="metric"><span>Source</span><strong>{settings.openaiApiKeySource || "None"}</strong></div>
-      <div className="metric"><span>Active key</span><strong>{settings.openaiApiKeyMasked || "Not configured"}</strong></div>
-    </div>
+    <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap">
+      <Metric label="Configured" value={settings.openaiApiKeyConfigured ? "Yes" : "No"} />
+      <Metric label="Source" value={settings.openaiApiKeySource || "None"} />
+      <Metric label="Active key" value={settings.openaiApiKeyMasked || "Not configured"} />
+    </Stack>
   );
 }
