@@ -1,5 +1,5 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 
 export function scrollWindowToPosition(top) {
   window.scrollTo(0, top);
@@ -30,13 +30,29 @@ export function IconButton({ title, onClick, href, disabled = false, tone = "def
   return <button type="button" className={className} title={title} aria-label={title} onClick={onClick} disabled={disabled}>{children}</button>;
 }
 
-export function Shell({ title, children }) {
+export function Shell({ title, subtitle, children }) {
   return (
     <div className="shell">
-      <header className="hero">
-        <div><p className="eyebrow">Otomoto Parser</p><h1>{title}</h1></div>
-        <div className="hero-links"><Link to="/" className="hero-link">All requests</Link><Link to="/settings" className="hero-link">Settings</Link></div>
+      <header className="topbar">
+        <Link to="/" className="brand-mark">
+          <span className="brand-mark-label">OP</span>
+          <span className="brand-copy">
+            <strong>Otomoto Parser</strong>
+            <span>Review workspace</span>
+          </span>
+        </Link>
+        <nav className="topbar-nav" aria-label="Primary">
+          <NavLink to="/" end className={({ isActive }) => isActive ? "topbar-link active" : "topbar-link"}>All requests</NavLink>
+          <NavLink to="/settings" className={({ isActive }) => isActive ? "topbar-link active" : "topbar-link"}>Settings</NavLink>
+        </nav>
       </header>
+      <div className="page-header">
+        <div className="page-header-copy">
+          <p className="eyebrow">Otomoto Parser</p>
+          <h1>{title}</h1>
+          {subtitle ? <p className="page-subtitle">{subtitle}</p> : null}
+        </div>
+      </div>
       {children}
     </div>
   );
