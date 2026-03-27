@@ -71,12 +71,12 @@ describe("RequestDetailPage polling", () => {
     );
 
     expect(await screen.findByText("Request req-1")).toBeTruthy();
-    expect(await screen.findByText("Request one ready")).toBeTruthy();
+    expect((await screen.findAllByText("Request one ready")).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: "Open request 2" }));
 
     expect(await screen.findByText("Request req-2")).toBeTruthy();
-    expect(await screen.findByText("Request two ready")).toBeTruthy();
+    expect((await screen.findAllByText("Request two ready")).length).toBeGreaterThan(0);
     expect(fetchMock).toHaveBeenCalledWith("/api/requests/req-2", expect.any(Object));
   });
 
@@ -226,7 +226,7 @@ describe("RequestDetailPage polling", () => {
         </Routes>
       </MemoryRouter>,
     );
-    expect(await screen.findByText("Ready to delete")).toBeTruthy();
+    expect((await screen.findAllByText("Ready to delete")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Delete request" }));
     await screen.findByText("Request req-1");
     expect(window.confirm).toHaveBeenCalledWith("Remove this request and its stored files?");
@@ -264,7 +264,7 @@ describe("RequestDetailPage polling", () => {
     expect(await screen.findByText("Request req-1")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Resume and gather new" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Redo from scratch" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Results" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Excel" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open results" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Download Excel" })).toBeTruthy();
   });
 });

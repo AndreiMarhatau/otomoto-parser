@@ -1,28 +1,21 @@
 import React from "react";
 import {
   Alert,
-  Button,
   Card,
   CardContent,
-  FormControl,
-  InputLabel,
-  MenuItem,
   Pagination,
-  Select,
   Stack,
-  Tab,
-  Tabs,
   Typography,
 } from "@mui/material";
 import { useParams } from "react-router-dom";
 
 import { api } from "./api";
-import { pageSizeOptions } from "./constants";
-import { IconEdit, IconPlus, IconTrash } from "./icons";
-import { Breadcrumbs, IconButton, Shell, buildPageItems, scrollWindowToPosition } from "./layout";
-import { formatDistanceChip, formatGeolocationStatus, getGeolocationButtonLabel } from "./location-utils";
+import { Breadcrumbs, Shell, buildPageItems, scrollWindowToPosition } from "./layout";
+import { formatDistanceChip } from "./location-utils";
 import { ListingCard } from "./listing-card";
 import { LocationModal } from "./location-modal";
+import { ResultsCategoryRail } from "./results-category-rail";
+import { ResultsHeaderCard } from "./results-header-card";
 import { useCategoryActions } from "./use-category-actions";
 import { useRedFlagState } from "./use-red-flag-state";
 import { useReportState } from "./use-report-state";
@@ -47,7 +40,7 @@ export function RequestResultsPage() {
   usePollingEffects({ requestId, reportState, redFlagState, setRedFlagState, loadRedFlagState, updateVehicleReportResultItem: dataState.updateVehicleReportResultItem });
 
   return (
-    <Shell title="Results" subtitle="Compact listing review with Material UI controls, static results controls, and a flatter report flow.">
+    <Shell title="Results" subtitle="Listing review with clearer controls, stronger hierarchy, and a layout that stays readable on mobile." maxWidth="xl">
       <Breadcrumbs items={[{ label: "Requests", to: "/" }, dataState.request ? { label: `Request ${dataState.request.id}`, to: `/requests/${dataState.request.id}` } : { label: "Request" }, { label: "Results" }]} />
       <Stack spacing={2}>
         {dataState.requestLoading ? <Typography color="text.secondary">Loading request...</Typography> : null}
@@ -70,11 +63,11 @@ function ResultsSection({ dataState, geolocation, categoryActions, listTopRef, s
   return (
     <Stack spacing={2}>
       <Card variant="outlined">
-        <CardContent>
-          <ResultsHeader dataState={dataState} geolocation={geolocation} />
+        <CardContent sx={{ p: { xs: 2, md: 2.5 } }}>
+          <ResultsHeaderCard dataState={dataState} geolocation={geolocation} />
         </CardContent>
       </Card>
-      <ResultsTabs categoryEntries={categoryEntries} activeCategory={dataState.activeCategory} setActiveCategory={dataState.setActiveCategory} setCurrentPage={dataState.setCurrentPage} categoryMap={dataState.results?.categories || {}} categoryActions={categoryActions} />
+      <ResultsCategoryRail categoryEntries={categoryEntries} activeCategory={dataState.activeCategory} setActiveCategory={dataState.setActiveCategory} setCurrentPage={dataState.setCurrentPage} categoryMap={dataState.results?.categories || {}} categoryActions={categoryActions} />
       <div ref={listTopRef} />
       <Stack spacing={1.5}>{currentItems.length === 0 ? <Typography color="text.secondary">No listings in this category.</Typography> : currentItems.map((item) => <ListingCard key={item.id} item={item} assignableCategories={dataState.results?.assignableCategories || []} categoryBusy={Boolean(dataState.categoryBusyByListing[item.id])} onAssignCategories={categoryActions.assignSavedCategories} onCreateCategory={dataState.createCategory} onOpenLocation={setLocationPreview} onOpenReport={reportState.openVehicleReport} distanceLabel={formatDistanceChip(item.location, geolocation.geolocationState, geolocation.locationCache[item.location])} />)}</Stack>
       {currentItems.length > 0 ? <PaginationFooter results={dataState.results} safePage={safePage} pageSize={dataState.pageSize} totalPages={totalPages} setCurrentPage={dataState.setCurrentPage} /> : null}
@@ -82,60 +75,9 @@ function ResultsSection({ dataState, geolocation, categoryActions, listTopRef, s
   );
 }
 
-function ResultsHeader({ dataState, geolocation }) {
-  const activeCategoryMeta = dataState.results.categories?.[dataState.activeCategory];
-  return (
-    <Stack direction={{ xs: "column", md: "row" }} spacing={2} justifyContent="space-between">
-      <div>
-        <Typography variant="overline" color="text.secondary">Review queue</Typography>
-        <Typography variant="h5">{`${dataState.results.totalCount} listings`}</Typography>
-        <Typography variant="body2" color="text.secondary">{`${activeCategoryMeta?.label || "Category"}: ${dataState.results.pagination.totalItems} • Generated ${new Date(dataState.results.generatedAt).toLocaleString()}`}</Typography>
-      </div>
-      <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ sm: "center" }}>
-        <Button variant="outlined" onClick={geolocation.requestCurrentPosition} disabled={!dataState.results || geolocation.geolocationState.status === "requesting" || geolocation.geolocationState.status === "unavailable"}>
-          {getGeolocationButtonLabel(geolocation.geolocationState)}
-        </Button>
-        <Typography variant="body2" color="text.secondary">{formatGeolocationStatus(geolocation.geolocationState)}</Typography>
-        <FormControl size="small" sx={{ minWidth: 104 }}>
-          <InputLabel id="results-page-size-label">Per page</InputLabel>
-          <Select
-            labelId="results-page-size-label"
-            label="Per page"
-            value={String(dataState.pageSize)}
-            onChange={(event) => {
-              dataState.setCurrentPage(1);
-              dataState.setPageSize(Number(event.target.value));
-            }}
-          >
-            {pageSizeOptions.map((option) => <MenuItem key={option} value={String(option)}>{option}</MenuItem>)}
-          </Select>
-        </FormControl>
-      </Stack>
-    </Stack>
-  );
-}
-
-function ResultsTabs({ categoryEntries, activeCategory, setActiveCategory, setCurrentPage, categoryMap, categoryActions }) {
-  const activeIndex = Math.max(categoryEntries.findIndex(([categoryKey]) => categoryKey === activeCategory), 0);
-  return (
-    <Card variant="outlined">
-      <CardContent sx={{ display: "flex", flexDirection: { xs: "column", lg: "row" }, gap: 1, alignItems: { lg: "center" }, justifyContent: "space-between" }}>
-        <Tabs value={activeIndex} variant="scrollable" allowScrollButtonsMobile>
-          {categoryEntries.map(([categoryKey, category], index) => <Tab key={categoryKey} label={`${category.label} (${category.count || 0})`} value={index} onClick={() => { setCurrentPage(1); setActiveCategory(categoryKey); }} />)}
-        </Tabs>
-        <Stack direction="row" spacing={1}>
-          <IconButton title="Add category" tone="secondary" onClick={() => void categoryActions.createCategoryTab()}><IconPlus /></IconButton>
-          {categoryMap[activeCategory]?.editable ? <IconButton title="Rename category" tone="secondary" onClick={categoryActions.renameActiveCategory}><IconEdit /></IconButton> : null}
-          {categoryMap[activeCategory]?.deletable ? <IconButton title="Delete category" tone="danger" onClick={categoryActions.deleteActiveCategory}><IconTrash /></IconButton> : null}
-        </Stack>
-      </CardContent>
-    </Card>
-  );
-}
-
 function PaginationFooter({ results, safePage, pageSize, totalPages, setCurrentPage }) {
   return (
-    <Stack direction={{ xs: "column", sm: "row" }} spacing={1} justifyContent="space-between" alignItems={{ sm: "center" }}>
+    <Stack direction={{ xs: "column", sm: "row" }} spacing={1} justifyContent="space-between" alignItems={{ sm: "center" }} sx={{ pt: 0.5 }}>
       <Pagination count={totalPages} page={safePage} onChange={(_, page) => setCurrentPage(page)} shape="rounded" />
       <Typography variant="body2" color="text.secondary">{`Showing ${Math.min(results.pagination.totalItems, (safePage - 1) * pageSize + 1)}-${Math.min(results.pagination.totalItems, safePage * pageSize)} of ${results.pagination.totalItems}`}</Typography>
     </Stack>

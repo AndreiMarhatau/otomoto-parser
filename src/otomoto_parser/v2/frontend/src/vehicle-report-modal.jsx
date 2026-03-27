@@ -1,33 +1,47 @@
 import React from "react";
 import {
   Alert,
-  Button,
   Chip,
   Dialog,
   DialogContent,
-  DialogTitle,
   Divider,
   Stack,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 
 import { normalizeLookupText } from "./formatters";
-import { IconClose, IconExternal, IconRefresh } from "./icons";
-import { IconButton } from "./layout";
+import { VehicleReportDialogHeader } from "./vehicle-report-dialog-header";
 import { VehicleAnalysisSection, VehicleLookupSection, VehicleReportDetails } from "./vehicle-report-sections";
 
+const EMPTY_LOOKUP_DEFAULTS = Object.freeze({
+  registrationNumber: "",
+  dateFrom: "",
+  dateTo: "",
+});
+
 export function VehicleReportModal({ state, redFlagState, settings, onClose, onRegenerate, onLookup, onCancelLookup, onStartRedFlags, onCancelRedFlags }) {
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down("md"));
   const modalState = buildModalState(state);
   const progressMessage = buildProgressMessage(modalState.data, modalState.busyFlags);
   const [formState, setFormState] = React.useState(() => emptyLookupFormState());
   const defaultLookupValues = React.useMemo(
-    () => buildLookupDefaults(modalState.activeLookup, modalState.lookupOptions, modalState.identity),
-    [modalState.activeLookup, modalState.identity, modalState.lookupOptions],
+    () => (state ? buildLookupDefaults(modalState.activeLookup, modalState.lookupOptions, modalState.identity) : EMPTY_LOOKUP_DEFAULTS),
+    [modalState.activeLookup, modalState.identity, modalState.lookupOptions, state],
   );
 
   React.useEffect(() => {
-    setFormState((current) => syncLookupFormState(current, state?.item?.id, defaultLookupValues));
-  }, [defaultLookupValues, state?.item?.id]);
+    setFormState((current) => {
+      if (!state) {
+        return current.stateId === null && areLookupDefaultsEqual(current.defaultValues, EMPTY_LOOKUP_DEFAULTS) && !current.dirty
+          ? current
+          : emptyLookupFormState();
+      }
+      return syncLookupFormState(current, state.item.id, defaultLookupValues);
+    });
+  }, [defaultLookupValues, state]);
 
   if (!state) return null;
   const { item, busyFlags, error, data, identity, summary, report, retrievedAt, lookupOptions, activeLookup } = modalState;
@@ -35,20 +49,11 @@ export function VehicleReportModal({ state, redFlagState, settings, onClose, onR
   const summaryEntries = buildSummaryEntries(identity, summary);
   const sourceStatusEntries = buildSourceStatusEntries(identity, report, summary);
   return (
-    <Dialog open onClose={onClose} fullWidth maxWidth="lg">
-      <DialogTitle sx={{ pr: 18 }}>
-        <Typography component="div" variant="overline" color="text.secondary">Vehicle report</Typography>
-        <Typography component="div" variant="h5">{item.title}</Typography>
-        <Typography component="div" variant="body2" color="text.secondary">{item.location || "Location unavailable"}</Typography>
-        <Stack direction="row" spacing={1} sx={{ position: "absolute", right: 16, top: 14 }}>
-          <IconButton title="Open listing" href={item.url} tone="secondary"><IconExternal /></IconButton>
-          <IconButton title="Regenerate report" tone="secondary" onClick={onRegenerate} disabled={isModalActionDisabled(busyFlags, data?.status)}><IconRefresh /></IconButton>
-          <IconButton title="Close report" tone="secondary" onClick={onClose}><IconClose /></IconButton>
-        </Stack>
-      </DialogTitle>
+    <Dialog open onClose={onClose} fullWidth maxWidth="lg" fullScreen={fullScreen}>
+      <VehicleReportDialogHeader item={item} busyFlags={busyFlags} status={data?.status} onClose={onClose} onRegenerate={onRegenerate} />
       <DialogContent dividers>
-        <Stack spacing={2}>
-        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+        <Stack spacing={2.25}>
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
             <Chip label={statusLabel(data, busyFlags.loading)} />
             <Chip label={`Retrieved: ${retrievedAt || "Not retrieved yet"}`} />
           </Stack>
@@ -127,7 +132,7 @@ function buildLookupDefaults(activeLookup, lookupOptions, identity) {
 }
 
 function emptyLookupFormState() {
-  return { stateId: null, registrationNumber: "", dateFrom: "", dateTo: "", defaultValues: buildLookupDefaults({}, {}, {}), dirty: false };
+  return { stateId: null, registrationNumber: "", dateFrom: "", dateTo: "", defaultValues: EMPTY_LOOKUP_DEFAULTS, dirty: false };
 }
 
 function syncLookupFormState(currentState, stateId, defaultValues) {
@@ -150,10 +155,6 @@ function updateLookupFormState(currentState, updates) {
 
 function areLookupDefaultsEqual(left, right) {
   return left.registrationNumber === right.registrationNumber && left.dateFrom === right.dateFrom && left.dateTo === right.dateTo;
-}
-
-function isModalActionDisabled(busyFlags, status) {
-  return busyFlags.loading || busyFlags.regenerating || busyFlags.submittingLookup || busyFlags.cancellingLookup || ["running", "cancelling"].includes(status);
 }
 
 function buildProgressMessage(data, busyFlags) {

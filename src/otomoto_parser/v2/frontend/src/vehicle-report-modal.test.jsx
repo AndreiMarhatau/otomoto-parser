@@ -19,6 +19,24 @@ describe("VehicleReportModal", () => {
     vi.restoreAllMocks();
   });
 
+  it("renders nothing when closed", () => {
+    const { container } = render(
+      <VehicleReportModal
+        state={null}
+        redFlagState={null}
+        settings={{ openaiApiKeyConfigured: false }}
+        onClose={vi.fn()}
+        onRegenerate={vi.fn()}
+        onLookup={vi.fn()}
+        onCancelLookup={vi.fn()}
+        onStartRedFlags={vi.fn()}
+        onCancelRedFlags={vi.fn()}
+      />,
+    );
+
+    expect(container.innerHTML).toBe("");
+  });
+
   it("renders lookup workflows and normalizes lookup submissions", async () => {
     const onLookup = vi.fn();
     const onCancelLookup = vi.fn();

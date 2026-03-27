@@ -215,7 +215,15 @@ describe("RequestResultsPage unit branches", () => {
 
     renderPage();
 
-    fireEvent.click(screen.getByRole("tab", { name: "Review (1)" }));
+    const tablist = screen.getByRole("tablist", { name: "Result categories" });
+    const favoritesTab = screen.getByRole("tab", { name: "Favorites (5)", selected: true });
+    const reviewTab = screen.getByRole("tab", { name: "Review (1)", selected: false });
+
+    expect(tablist).toBeTruthy();
+    fireEvent.click(reviewTab);
+    favoritesTab.focus();
+    fireEvent.keyDown(favoritesTab, { key: "ArrowRight" });
+
     fireEvent.click(screen.getByRole("button", { name: "Refresh location" }));
     fireEvent.click(screen.getByRole("button", { name: "Add category" }));
     fireEvent.click(screen.getByRole("button", { name: "Rename category" }));
@@ -236,6 +244,7 @@ describe("RequestResultsPage unit branches", () => {
     expect(screen.getByText("Transient warning")).toBeTruthy();
     expect(screen.getByText("Showing 6-6 of 6")).toBeTruthy();
     expect(dataState.setActiveCategory).toHaveBeenCalledWith("Review");
+    expect(dataState.setActiveCategory).toHaveBeenCalledTimes(2);
     expect(dataState.setCurrentPage).toHaveBeenCalledWith(1);
     expect(dataState.setPageSize).toHaveBeenCalledWith(24);
     expect(dataState.setCurrentPage).toHaveBeenCalledWith(6);

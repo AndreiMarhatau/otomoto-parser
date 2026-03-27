@@ -5,7 +5,9 @@ import {
   AccordionSummary,
   Alert,
   Button,
+  Box,
   Grid,
+  Paper,
   Stack,
   TextField,
   Typography,
@@ -22,23 +24,25 @@ export function VehicleAnalysisSection({ analysisState, data, settings, busyFlag
   const redFlagError = analysisState?.error || null;
   const ui = buildAnalysisUi({ analysisState, busyFlags, dataStatus: data?.status, redFlagData, settings });
   return (
-    <Stack spacing={1.5}>
-      <Stack direction={{ xs: "column", md: "row" }} spacing={1} justifyContent="space-between">
-        <div>
-          <Typography variant="h6">Find red flags</Typography>
-          <Typography variant="body2" color="text.secondary">GPT-5.4 reviews the listing, the detail page, and the report when it is ready.</Typography>
-        </div>
-        <Stack direction="row" spacing={1}>
-          <Button onClick={onStartRedFlags} disabled={ui.disabled} variant="contained">{ui.primaryLabel}</Button>
-          {ui.showCancel ? <Button variant="outlined" onClick={onCancelRedFlags} disabled={ui.cancelDisabled}>{ui.cancelLabel}</Button> : null}
+    <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 } }}>
+      <Stack spacing={1.5}>
+        <Stack direction={{ xs: "column", md: "row" }} spacing={1.5} justifyContent="space-between">
+          <div>
+            <Typography variant="h6">Find red flags</Typography>
+            <Typography variant="body2" color="text.secondary">GPT-5.4 reviews the listing, the detail page, and the report when it is ready.</Typography>
+          </div>
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            <Button onClick={onStartRedFlags} disabled={ui.disabled} variant="contained">{ui.primaryLabel}</Button>
+            {ui.showCancel ? <Button variant="outlined" onClick={onCancelRedFlags} disabled={ui.cancelDisabled}>{ui.cancelLabel}</Button> : null}
+          </Stack>
         </Stack>
+        {!data?.report ? <Alert icon={<IconAlert />} severity="warning">Analysis works better after the vehicle report is ready.</Alert> : null}
+        {ui.showProgress ? <Alert severity="info">{redFlagData.progressMessage}</Alert> : null}
+        {redFlagError ? <Alert severity="error">{redFlagError}</Alert> : null}
+        {!redFlagError && redFlagData?.error ? <Alert severity="error">{redFlagData.error}</Alert> : null}
+        {analysis ? <AnalysisResult analysis={analysis} /> : null}
       </Stack>
-      {!data?.report ? <Alert icon={<IconAlert />} severity="warning">Analysis works better after the vehicle report is ready.</Alert> : null}
-      {ui.showProgress ? <Alert severity="info">{redFlagData.progressMessage}</Alert> : null}
-      {redFlagError ? <Alert severity="error">{redFlagError}</Alert> : null}
-      {!redFlagError && redFlagData?.error ? <Alert severity="error">{redFlagData.error}</Alert> : null}
-      {analysis ? <AnalysisResult analysis={analysis} /> : null}
-    </Stack>
+    </Paper>
   );
 }
 
@@ -46,62 +50,64 @@ export function VehicleLookupSection(props) {
   const { data, identity, lookupOptions, registrationNumber, dateFrom, dateTo, setRegistrationNumber, setDateFrom, setDateTo, busyFlags, onLookup, onCancelLookup } = props;
   const disabled = busyFlags.loading || busyFlags.regenerating || busyFlags.submittingLookup || busyFlags.cancellingLookup || data?.status === "running" || data?.status === "cancelling";
   return (
-    <Stack spacing={1.5}>
-      <Typography variant="h6">Lookup details</Typography>
-      <Grid container spacing={1.5}>
-        <Grid size={{ xs: 12, md: 3 }}>
-          <TextField
-            fullWidth
-            size="small"
-            label="VIN"
-            value={identity.vin || lookupOptions.vin || "—"}
-            slotProps={{ input: { readOnly: true } }}
-          />
+    <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 } }}>
+      <Stack spacing={1.5}>
+        <Typography variant="h6">Lookup details</Typography>
+        <Grid container spacing={1.5}>
+          <Grid size={{ xs: 12, md: 6, xl: 3 }}>
+            <TextField
+              fullWidth
+              size="small"
+              label="VIN"
+              value={identity.vin || lookupOptions.vin || "—"}
+              slotProps={{ input: { readOnly: true } }}
+            />
+          </Grid>
+          <Grid size={{ xs: 12, md: 6, xl: 3 }}>
+            <TextField
+              fullWidth
+              size="small"
+              label="Registration number"
+              value={registrationNumber}
+              onChange={(event) => setRegistrationNumber(normalizeLookupText(event.target.value))}
+              placeholder="Enter registration"
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
+            <TextField
+              fullWidth
+              size="small"
+              label="First registration from"
+              type="date"
+              value={dateFrom}
+              onChange={(event) => setDateFrom(event.target.value)}
+              slotProps={{ inputLabel: { shrink: true } }}
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
+            <TextField
+              fullWidth
+              size="small"
+              label="Search until"
+              type="date"
+              value={dateTo}
+              onChange={(event) => setDateTo(event.target.value)}
+              slotProps={{ inputLabel: { shrink: true } }}
+            />
+          </Grid>
         </Grid>
-        <Grid size={{ xs: 12, md: 3 }}>
-          <TextField
-            fullWidth
-            size="small"
-            label="Registration number"
-            value={registrationNumber}
-            onChange={(event) => setRegistrationNumber(normalizeLookupText(event.target.value))}
-            placeholder="Enter registration"
-          />
-        </Grid>
-        <Grid size={{ xs: 12, md: 3 }}>
-          <TextField
-            fullWidth
-            size="small"
-            label="First registration from"
-            type="date"
-            value={dateFrom}
-            onChange={(event) => setDateFrom(event.target.value)}
-            slotProps={{ inputLabel: { shrink: true } }}
-          />
-        </Grid>
-        <Grid size={{ xs: 12, md: 3 }}>
-          <TextField
-            fullWidth
-            size="small"
-            label="Search until"
-            type="date"
-            value={dateTo}
-            onChange={(event) => setDateTo(event.target.value)}
-            slotProps={{ inputLabel: { shrink: true } }}
-          />
-        </Grid>
-      </Grid>
-      <Stack direction="row" spacing={1}>
-        <Button variant="contained" disabled={disabled} onClick={() => onLookup({ registrationNumber: normalizeLookupText(registrationNumber), dateFrom, dateTo })}>
-          {busyFlags.submittingLookup ? "Starting lookup..." : (data?.status === "running" || data?.status === "cancelling") ? "Lookup in progress" : "Search date range"}
-        </Button>
-        {data?.status === "running" || data?.status === "cancelling" ? (
-          <Button variant="outlined" onClick={onCancelLookup} disabled={busyFlags.cancellingLookup || data?.status === "cancelling"}>
-            {busyFlags.cancellingLookup || data?.status === "cancelling" ? "Cancelling..." : "Cancel lookup"}
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+          <Button variant="contained" disabled={disabled} onClick={() => onLookup({ registrationNumber: normalizeLookupText(registrationNumber), dateFrom, dateTo })}>
+            {busyFlags.submittingLookup ? "Starting lookup..." : (data?.status === "running" || data?.status === "cancelling") ? "Lookup in progress" : "Search date range"}
           </Button>
-        ) : null}
+          {data?.status === "running" || data?.status === "cancelling" ? (
+            <Button variant="outlined" onClick={onCancelLookup} disabled={busyFlags.cancellingLookup || data?.status === "cancelling"}>
+              {busyFlags.cancellingLookup || data?.status === "cancelling" ? "Cancelling..." : "Cancel lookup"}
+            </Button>
+          ) : null}
+        </Stack>
       </Stack>
-    </Stack>
+    </Paper>
   );
 }
 
@@ -146,7 +152,9 @@ function AnalysisGroup({ title, empty, items, tone }) {
   return items?.length ? (
     <Alert severity={tone}>
       <Typography variant="subtitle2">{title}</Typography>
-      <ul>{items.map((flag) => <li key={flag}>{flag}</li>)}</ul>
+      <Box component="ul" sx={{ mb: 0, mt: 1, pl: 2.5 }}>
+        {items.map((flag) => <li key={flag}>{flag}</li>)}
+      </Box>
     </Alert>
   ) : (
     <Typography variant="body2" color="text.secondary">{`${title}: ${empty}`}</Typography>

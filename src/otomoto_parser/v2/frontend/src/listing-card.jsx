@@ -30,13 +30,13 @@ export function ListingCard({ item, assignableCategories, categoryBusy, onAssign
           ) : (
             <Box sx={{ minHeight: 180, bgcolor: "action.hover" }} />
           )}
-          <CardContent sx={{ display: "grid", gap: 1.5 }}>
-            <Stack direction="row" spacing={2} justifyContent="space-between" alignItems="flex-start">
+          <CardContent sx={{ display: "grid", gap: 1.5, p: { xs: 1.75, md: 2 } }}>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25} justifyContent="space-between" alignItems={{ sm: "flex-start" }}>
               <Box sx={{ minWidth: 0 }}>
-                <Typography variant="h6" sx={{ pr: 1 }}>{item.title}</Typography>
-                <Typography variant="body2" color="text.secondary">{item.shortDescription || "No short description."}</Typography>
+                <Typography variant="h6" sx={{ pr: 1, lineHeight: 1.2 }}>{item.title}</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{item.shortDescription || "No short description."}</Typography>
               </Box>
-              <Typography variant="h6" color="primary.main" sx={{ whiteSpace: "nowrap" }}>
+              <Typography variant="h6" color="primary.main" sx={{ whiteSpace: "nowrap", alignSelf: { xs: "flex-start", sm: "flex-start" } }}>
                 {item.price ? `${item.price.toLocaleString("pl-PL")} ${item.priceCurrency}` : "—"}
               </Typography>
             </Stack>
@@ -62,6 +62,7 @@ export function ListingCard({ item, assignableCategories, categoryBusy, onAssign
                     event.stopPropagation();
                     onOpenLocation({ title: item.title, location: item.location });
                   }}
+                  sx={{ px: 0, minHeight: "unset" }}
                 >
                   {item.location}
                 </Button>

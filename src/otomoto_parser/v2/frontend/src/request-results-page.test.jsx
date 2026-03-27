@@ -16,11 +16,6 @@ describe("RequestResultsPage geolocation bootstrap", () => {
     originalPermissions = navigator.permissions;
     originalSecureContext = window.isSecureContext;
     window.scrollTo = vi.fn();
-    window.requestAnimationFrame = vi.fn((callback) => {
-      callback();
-      return 1;
-    });
-    window.cancelAnimationFrame = vi.fn();
     Object.defineProperty(window, "isSecureContext", {
       configurable: true,
       value: true,
@@ -267,6 +262,22 @@ describe("RequestResultsPage geolocation bootstrap", () => {
     fireEvent.mouseDown(pageSizeControl);
     expect(await screen.findByRole("listbox")).toBeTruthy();
     expect(await screen.findByRole("option", { name: "24" })).toBeTruthy();
+  });
+
+  it("renders category navigation with tab semantics", async () => {
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: undefined,
+    });
+    Object.defineProperty(navigator, "permissions", {
+      configurable: true,
+      value: undefined,
+    });
+
+    renderResultsPage();
+
+    expect(await screen.findByRole("tablist", { name: "Result categories" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Price evaluation out of range (1)", selected: true })).toBeTruthy();
   });
 
   it("preserves denied classification when manual geolocation fails and follow-up permissions query rejects", async () => {

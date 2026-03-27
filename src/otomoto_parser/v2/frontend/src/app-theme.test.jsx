@@ -71,8 +71,8 @@ describe("AppThemeProvider", () => {
     expect(darkTheme.customTokens).toEqual(themeTokens.dark);
     expect(lightTheme.palette.primary.main).toBe(themeTokens.light.palette.primary);
     expect(darkTheme.palette.background.default).toBe(themeTokens.dark.palette.backgroundDefault);
-    expect(lightTheme.components.MuiOutlinedInput.styleOverrides.root.backgroundColor).toBe(themeTokens.light.surfaces.field);
-    expect(darkTheme.components.MuiOutlinedInput.styleOverrides.root.backgroundColor).toBe(themeTokens.dark.surfaces.field);
+    expect(lightTheme.components.MuiOutlinedInput.styleOverrides.root({ theme: lightTheme }).backgroundColor).toBe(themeTokens.light.surfaces.field);
+    expect(darkTheme.components.MuiOutlinedInput.styleOverrides.root({ theme: darkTheme }).backgroundColor).toBe(themeTokens.dark.surfaces.field);
     expect(lightTheme.components.MuiChip.styleOverrides.root({ theme: lightTheme }).backgroundColor).toContain("rgba");
     expect(lightTheme.components.MuiDialog.styleOverrides.paper({ theme: lightTheme }).border).toContain(lightTheme.palette.divider);
     expect(darkTheme.components.MuiAccordion.styleOverrides.root({ theme: darkTheme }).border).toContain(darkTheme.palette.divider);

@@ -13,21 +13,24 @@ export const themeTokens = {
   light: {
     palette: {
       primary: "#0f766e",
-      secondary: "#b7791f",
+      secondary: "#9a6a1b",
       error: "#c24141",
       warning: "#c47f17",
       success: "#24805f",
-      backgroundDefault: "#eef3f4",
-      backgroundPaper: "#fbfcfc",
-      textPrimary: "#1f2d2d",
-      textSecondary: "#5c6f71",
-      divider: "rgba(48, 71, 71, 0.12)",
+      backgroundDefault: "#e7efef",
+      backgroundPaper: "#ffffff",
+      textPrimary: "#183234",
+      textSecondary: "#546a6e",
+      divider: "rgba(32, 61, 63, 0.14)",
     },
     gradients: {
-      body: "radial-gradient(circle at top, rgba(15,118,110,0.09), transparent 24%)",
+      body: [
+        "radial-gradient(circle at top left, rgba(15,118,110,0.14), transparent 28%)",
+        "linear-gradient(180deg, rgba(255,255,255,0.72) 0%, rgba(231,239,239,0.92) 100%)",
+      ].join(", "),
     },
     surfaces: {
-      field: "rgba(255, 255, 255, 0.84)",
+      field: "rgba(255, 255, 255, 0.96)",
     },
   },
   dark: {
@@ -88,6 +91,7 @@ export function buildTheme(mode) {
             borderRadius: 999,
             boxShadow: "none",
             paddingInline: currentTheme.spacing(2),
+            minHeight: 40,
           }),
         },
       },
@@ -107,20 +111,27 @@ export function buildTheme(mode) {
             boxShadow: "none",
             border: `1px solid ${currentTheme.palette.divider}`,
             backgroundImage: "none",
+            backgroundColor: alpha(currentTheme.palette.background.paper, 0.94),
           }),
         },
       },
       MuiPaper: {
         styleOverrides: {
-          root: { backgroundImage: "none" },
+          root: ({ theme: currentTheme }) => ({
+            backgroundImage: "none",
+            backgroundColor: alpha(currentTheme.palette.background.paper, 0.94),
+          }),
         },
       },
       MuiOutlinedInput: {
         styleOverrides: {
-          root: {
+          root: ({ theme: currentTheme }) => ({
             borderRadius: 18,
             backgroundColor: tokens.surfaces.field,
-          },
+            "& fieldset": {
+              borderColor: alpha(currentTheme.palette.text.primary, 0.14),
+            },
+          }),
         },
       },
       MuiDialog: {
@@ -137,6 +148,7 @@ export function buildTheme(mode) {
             borderRadius: 18,
             border: `1px solid ${currentTheme.palette.divider}`,
             boxShadow: "none",
+            backgroundColor: alpha(currentTheme.palette.background.paper, 0.9),
             "&::before": { display: "none" },
             "& + &": { marginTop: currentTheme.spacing(1) },
           }),
@@ -163,8 +175,7 @@ export function AppThemeProvider({ children }) {
           "html, body, #root": { minHeight: "100%" },
           body: {
             margin: 0,
-            backgroundImage:
-              theme.customTokens.gradients.body,
+            backgroundImage: theme.customTokens.gradients.body,
             backgroundColor: theme.palette.background.default,
             color: theme.palette.text.primary,
             overflowX: "hidden",
