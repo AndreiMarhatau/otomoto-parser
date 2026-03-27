@@ -44,6 +44,7 @@ describe("RequestListPage", () => {
 
     renderRequestListPage();
 
+    fireEvent.click(await screen.findByRole("button", { name: /new request/i }));
     fireEvent.change(await screen.findByPlaceholderText("https://www.otomoto.pl/osobowe/..."), {
       target: { value: "https://example.invalid/search" },
     });
@@ -129,6 +130,7 @@ describe("RequestListPage", () => {
 
     renderRequestListPage();
 
+    fireEvent.click(await screen.findByRole("button", { name: /new request/i }));
     const textarea = await screen.findByPlaceholderText("https://www.otomoto.pl/osobowe/...");
     fireEvent.change(textarea, { target: { value: "bad-url" } });
     fireEvent.click(screen.getByRole("button", { name: "Create request" }));
@@ -251,5 +253,161 @@ describe("RequestListPage", () => {
     expect(screen.getByRole("link", { name: "/relative/path" }).getAttribute("href")).toBe("/relative/path");
     expect(screen.getByRole("link", { name: "https://example.invalid/req-absolute" }).getAttribute("href")).toBe("https://example.invalid/req-absolute");
     expect(screen.queryByRole("link", { name: "::::" })).toBeNull();
+  });
+
+  it("uses explicit compact variant classes for request list rows and create dialog actions", async () => {
+    global.fetch = vi.fn(async (path, options = {}) => {
+      if (path === "/api/requests" && (!options.method || options.method === "GET")) {
+        return jsonResponse({
+          items: [
+            {
+              id: "req-1",
+              sourceUrl: "https://example.invalid/req-1",
+              status: "ready",
+              progressMessage: "Ready",
+              resultsWritten: 5,
+              pagesCompleted: 3,
+              createdAt: "2026-03-24T12:00:00Z",
+            },
+          ],
+        });
+      }
+      throw new Error(`Unhandled fetch path: ${path}`);
+    });
+
+    renderRequestListPage();
+
+    expect(await screen.findByText("Request req-1")).toBeTruthy();
+    expect(screen.getByText("5 listings").closest(".request-row-meta")?.classList.contains("request-row-meta-compact")).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: /new request/i }));
+
+    expect(screen.getByPlaceholderText("https://www.otomoto.pl/osobowe/...").closest("form")?.classList.contains("request-create-form")).toBe(true);
+    expect(screen.getByRole("button", { name: "Create request" }).closest(".form-actions")?.classList.contains("form-actions-compact")).toBe(true);
+  });
+
+  it("adds dialog semantics, focuses the textarea, and returns focus to the opener on escape close", async () => {
+    global.fetch = vi.fn(async (path, options = {}) => {
+      if (path === "/api/requests" && (!options.method || options.method === "GET")) {
+        return jsonResponse({ items: [] });
+      }
+      throw new Error(`Unhandled fetch path: ${path}`);
+    });
+
+    renderRequestListPage();
+
+    const opener = await screen.findByRole("button", { name: /new request/i });
+    opener.focus();
+    fireEvent.click(opener);
+
+    const dialog = screen.getByRole("dialog", { name: "Create request" });
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(dialog.getAttribute("aria-describedby")).toBeTruthy();
+    expect(screen.getByPlaceholderText("https://www.otomoto.pl/osobowe/...")).toBe(document.activeElement);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Create request" })).toBeNull();
+    });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(opener);
+    });
+  });
+
+  it("traps keyboard tab navigation inside the dialog", async () => {
+    global.fetch = vi.fn(async (path, options = {}) => {
+      if (path === "/api/requests" && (!options.method || options.method === "GET")) {
+        return jsonResponse({ items: [] });
+      }
+      throw new Error(`Unhandled fetch path: ${path}`);
+    });
+
+    renderRequestListPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: /new request/i }));
+
+    const textarea = screen.getByPlaceholderText("https://www.otomoto.pl/osobowe/...");
+    const closeButton = screen.getByRole("button", { name: "Close dialog" });
+    const createButton = screen.getByRole("button", { name: "Create request" });
+    const cancelButton = screen.getByRole("button", { name: "Cancel" });
+
+    textarea.focus();
+    fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(closeButton);
+
+    closeButton.focus();
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(document.activeElement).toBe(textarea);
+
+    textarea.focus();
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(document.activeElement).toBe(createButton);
+
+    createButton.focus();
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(document.activeElement).toBe(cancelButton);
+
+    closeButton.focus();
+    fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(cancelButton);
+  });
+
+  it("closes on backdrop click when idle and returns focus to the opener", async () => {
+    global.fetch = vi.fn(async (path, options = {}) => {
+      if (path === "/api/requests" && (!options.method || options.method === "GET")) {
+        return jsonResponse({ items: [] });
+      }
+      throw new Error(`Unhandled fetch path: ${path}`);
+    });
+
+    renderRequestListPage();
+
+    const opener = await screen.findByRole("button", { name: /new request/i });
+    fireEvent.click(opener);
+    fireEvent.click(document.querySelector(".modal-backdrop"));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Create request" })).toBeNull();
+    });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(opener);
+    });
+  });
+
+  it("does not dismiss on escape or backdrop while create request is in flight and preserves the error state", async () => {
+    let rejectSubmit;
+    const submitPromise = new Promise((_, reject) => {
+      rejectSubmit = reject;
+    });
+
+    global.fetch = vi.fn(async (path, options = {}) => {
+      if (path === "/api/requests" && (!options.method || options.method === "GET")) {
+        return jsonResponse({ items: [] });
+      }
+      if (path === "/api/requests" && options.method === "POST") {
+        return submitPromise;
+      }
+      throw new Error(`Unhandled fetch path: ${path}`);
+    });
+
+    renderRequestListPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: /new request/i }));
+    const textarea = screen.getByPlaceholderText("https://www.otomoto.pl/osobowe/...");
+    fireEvent.change(textarea, { target: { value: "https://example.invalid/search" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create request" }));
+
+    expect(screen.getByRole("button", { name: "Creating..." })).toHaveProperty("disabled", true);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.click(document.querySelector(".modal-backdrop"));
+    expect(screen.getByRole("dialog", { name: "Create request" })).toBeTruthy();
+
+    rejectSubmit(new Error("submit failed"));
+
+    expect(await screen.findByText("submit failed")).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Create request" })).toBeTruthy();
+    expect(screen.getByPlaceholderText("https://www.otomoto.pl/osobowe/...")).toHaveProperty("value", "https://example.invalid/search");
   });
 });

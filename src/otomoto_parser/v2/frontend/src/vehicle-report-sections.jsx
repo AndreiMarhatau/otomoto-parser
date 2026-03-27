@@ -10,7 +10,7 @@ export function VehicleAnalysisSection({ analysisState, data, settings, busyFlag
   const redFlagError = analysisState?.error || null;
   const ui = buildAnalysisUi({ analysisState, busyFlags, dataStatus: data?.status, redFlagData, settings });
   return (
-    <section className="report-section">
+    <section className="report-section report-section-compact">
       <div className="analysis-section-head">
         <div><h3>Find red flags</h3><p className="muted">GPT-5.4 reviews the listing, the detail page, and the report when it is ready.</p></div>
         <div className="analysis-actions">
@@ -31,7 +31,7 @@ export function VehicleAnalysisSection({ analysisState, data, settings, busyFlag
 
 export function VehicleLookupSection({ data, identity, lookupOptions, activeLookup, registrationNumber, dateFrom, dateTo, setRegistrationNumber, setDateFrom, setDateTo, busyFlags, onLookup, onCancelLookup }) {
   return (
-    <section className="report-section">
+    <section className="report-section report-section-compact">
       <h3>Lookup details</h3>
       <div className="report-pairs">
         <div className="report-pair"><span>VIN</span><strong>{identity.vin || lookupOptions.vin || "—"}</strong></div>
@@ -51,15 +51,15 @@ export function VehicleLookupSection({ data, identity, lookupOptions, activeLook
 
 export function VehicleReportDetails({ identity, report, summary, summaryEntries }) {
   return (
-    <details className="report-details">
+    <details className="report-details report-details-compact" open>
       <summary>View report</summary>
       <div className="report-layout">
-        <section className="report-section"><h3>Summary</h3><DataPairs entries={summaryEntries} /></section>
-        <section className="report-section"><h3>Source status</h3><DataPairs entries={[{ label: "Historia Pojazdu API", value: report.api_version || "—" }, { label: "AutoDNA payload", value: summary.autodnaAvailable ? "Available" : summary.autodnaUnavailable ? "Unavailable" : "Empty" }, { label: "Carfax payload", value: summary.carfaxAvailable ? "Available" : summary.carfaxUnavailable ? "Unavailable" : "Empty" }, { label: "Advert id", value: identity.advertId }]} /></section>
-        <details className="report-details"><summary>Technical data</summary><DataTree label="Technical data" value={report.technical_data} /></details>
-        <details className="report-details"><summary>AutoDNA</summary><DataTree label="AutoDNA" value={report.autodna_data} /></details>
-        <details className="report-details"><summary>Carfax</summary><DataTree label="Carfax" value={report.carfax_data} /></details>
-        <details className="report-details"><summary>Timeline</summary><DataTree label="Timeline" value={report.timeline_data} /></details>
+        <section className="report-section report-section-compact"><h3>Summary</h3><DataPairs entries={summaryEntries} /></section>
+        <section className="report-section report-section-compact"><h3>Source status</h3><DataPairs entries={[{ label: "Historia Pojazdu API", value: report.api_version || "—" }, { label: "AutoDNA payload", value: summary.autodnaAvailable ? "Available" : summary.autodnaUnavailable ? "Unavailable" : "Empty" }, { label: "Carfax payload", value: summary.carfaxAvailable ? "Available" : summary.carfaxUnavailable ? "Unavailable" : "Empty" }, { label: "Advert id", value: identity.advertId }]} /></section>
+        <details className="report-details report-details-compact"><summary>Technical data</summary><DataTree label="Technical data" value={report.technical_data} /></details>
+        <details className="report-details report-details-compact"><summary>AutoDNA</summary><DataTree label="AutoDNA" value={report.autodna_data} /></details>
+        <details className="report-details report-details-compact"><summary>Carfax</summary><DataTree label="Carfax" value={report.carfax_data} /></details>
+        <details className="report-details report-details-compact"><summary>Timeline</summary><DataTree label="Timeline" value={report.timeline_data} /></details>
       </div>
     </details>
   );

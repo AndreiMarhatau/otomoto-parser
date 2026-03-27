@@ -30,7 +30,7 @@ export function IconButton({ title, onClick, href, disabled = false, tone = "def
   return <button type="button" className={className} title={title} aria-label={title} onClick={onClick} disabled={disabled}>{children}</button>;
 }
 
-export function Shell({ title, subtitle, children }) {
+export function Shell({ title, subtitle, actions = null, children }) {
   return (
     <div className="shell">
       <header className="topbar">
@@ -52,6 +52,7 @@ export function Shell({ title, subtitle, children }) {
           <h1>{title}</h1>
           {subtitle ? <p className="page-subtitle">{subtitle}</p> : null}
         </div>
+        {actions ? <div className="page-header-actions">{actions}</div> : null}
       </div>
       {children}
     </div>

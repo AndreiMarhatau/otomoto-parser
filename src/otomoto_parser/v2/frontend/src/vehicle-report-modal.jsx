@@ -1,6 +1,6 @@
 import React from "react";
 
-import { buildVehicleReportMeta, normalizeLookupText } from "./formatters";
+import { normalizeLookupText } from "./formatters";
 import { IconClose, IconExternal, IconRefresh } from "./icons";
 import { IconButton } from "./layout";
 import { VehicleAnalysisSection, VehicleLookupSection, VehicleReportDetails } from "./vehicle-report-sections";

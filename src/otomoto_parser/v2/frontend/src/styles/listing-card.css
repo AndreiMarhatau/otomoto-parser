@@ -3,30 +3,21 @@
   display: block;
   width: 100%;
   min-width: 0;
-  padding: 1rem;
-  border-radius: 20px;
-  background: var(--panel-strong);
-  border: 1px solid var(--border);
-  transition:
-    transform 150ms ease,
-    border-color 150ms ease,
-    box-shadow 150ms ease;
+  padding: 0.85rem 0;
+  border-radius: 0;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
 }
 
 .listing-card-overlay-open {
   z-index: 12;
 }
 
-.listing-card:hover {
-  transform: translateY(-1px);
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow-soft);
-}
-
 .listing-card-body {
   display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
-  gap: 1rem;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 0.9rem;
   min-width: 0;
   position: relative;
   z-index: 2;
@@ -36,14 +27,14 @@
 .listing-card-anchor {
   position: absolute;
   inset: 0;
-  border-radius: 20px;
+  border-radius: 0;
   z-index: 1;
 }
 
 .listing-image-wrap {
   aspect-ratio: 4 / 3;
   overflow: hidden;
-  border-radius: 16px;
+  border-radius: 14px;
   background: var(--panel-muted);
 }
 
@@ -75,7 +66,7 @@
 
 .listing-topline h3 {
   margin: 0;
-  font-size: 1.08rem;
+  font-size: 1rem;
   line-height: 1.28;
 }
 
@@ -95,7 +86,7 @@
   flex-wrap: wrap;
   gap: 0.55rem;
   justify-content: flex-start;
-  margin: 0.2rem 0 0.8rem;
+  margin: 0.15rem 0 0.55rem;
 }
 
 .category-picker {
@@ -114,17 +105,17 @@
   flex-wrap: wrap;
   gap: 0.55rem;
   max-width: 100%;
-  padding: 0.58rem 0.8rem;
-  background: var(--panel-muted);
+  padding: 0.52rem 0.78rem;
+  background: transparent;
   border-color: var(--border);
   color: var(--text);
   box-shadow: none;
 }
 
 .listing-report-button {
-  background: var(--accent);
-  border-color: transparent;
-  color: var(--accent-contrast);
+  background: var(--panel-muted);
+  border-color: var(--border);
+  color: var(--text);
 }
 
 .listing-report-button:disabled,
@@ -133,11 +124,11 @@
 }
 
 .chip-row-primary {
-  margin: 0.7rem 0 0.15rem;
+  margin: 0.55rem 0 0.1rem;
 }
 
 .chip-row-secondary {
-  margin-top: 0.8rem;
+  margin-top: 0.5rem;
 }
 
 @media (max-width: 920px) {

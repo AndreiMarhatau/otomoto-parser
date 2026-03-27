@@ -26,7 +26,7 @@ export function ListingCard({ item, assignableCategories, categoryBusy, onAssign
           <div className="chip-row chip-row-primary">{summarySpecs.map((spec) => <span key={spec.label} className={`chip chip-${spec.tone}`}><span className="chip-label">{spec.label}</span><span>{spec.value}</span></span>)}</div>
           <ListingActions item={item} assignableCategories={assignableCategories} categoryBusy={categoryBusy} onAssignCategories={onAssignCategories} onCreateCategory={onCreateCategory} onOpenReport={onOpenReport} onOpenChange={setCategoryPickerOpen} reportStatus={reportStatus} reportStateTitle={reportStateTitle} />
           <div className="listing-place-row">
-            {item.location ? <button type="button" className="listing-place-button chip-interactive" title={`Preview ${item.location} on map`} onClick={() => onOpenLocation({ title: item.title, location: item.location })}>{item.location}</button> : <span className="listing-place-text">No location</span>}
+            {item.location ? <button type="button" className="listing-place-button" title={`Preview ${item.location} on map`} onClick={() => onOpenLocation({ title: item.title, location: item.location })}>{item.location}</button> : <span className="listing-place-text">No location</span>}
             <span className="listing-distance-text">{distanceLabel}</span>
           </div>
           <div className="chip-row chip-row-secondary">{detailSpecs.map((spec) => <span key={spec.label} className={`chip chip-${spec.tone}`}><span className="chip-label">{spec.label}</span><span>{spec.value}</span></span>)}</div>

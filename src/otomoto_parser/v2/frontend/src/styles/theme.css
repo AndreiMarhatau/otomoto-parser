@@ -1,23 +1,23 @@
 :root {
   color-scheme: light dark;
   font-family: "Instrument Sans", "Avenir Next", "Segoe UI", sans-serif;
-  --bg: #f4f6f8;
-  --bg-accent: rgba(255, 255, 255, 0.78);
-  --panel: rgba(255, 255, 255, 0.9);
+  --bg: #f5f6f7;
+  --bg-accent: #f5f6f7;
+  --panel: #f9fafb;
   --panel-strong: #ffffff;
-  --panel-muted: #f7f8fa;
-  --border: #d8dee6;
-  --border-strong: #c7d0da;
+  --panel-muted: #f1f3f5;
+  --border: #d6dce3;
+  --border-strong: #bfc8d2;
   --text: #15202b;
   --text-muted: #5b6776;
   --text-faint: #7c8795;
   --accent: #1e293b;
   --accent-soft: #dbe4ef;
   --accent-contrast: #f8fafc;
-  --shadow: 0 18px 42px rgba(15, 23, 42, 0.08);
-  --shadow-soft: 0 10px 24px rgba(15, 23, 42, 0.05);
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-soft: 0 1px 2px rgba(15, 23, 42, 0.03);
   --focus-ring: rgba(59, 130, 246, 0.65);
-  --overlay-backdrop: rgba(15, 23, 42, 0.5);
+  --overlay-backdrop: rgba(15, 23, 42, 0.4);
   --success-bg: #dff4e6;
   --success-text: #14532d;
   --warning-bg: #fff1cc;
@@ -45,23 +45,23 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f1720;
-    --bg-accent: rgba(18, 26, 36, 0.72);
-    --panel: rgba(18, 26, 36, 0.92);
-    --panel-strong: #111a24;
-    --panel-muted: #172230;
+    --bg: #10161d;
+    --bg-accent: #10161d;
+    --panel: #131b24;
+    --panel-strong: #161f29;
+    --panel-muted: #1a2532;
     --border: #263243;
-    --border-strong: #314154;
+    --border-strong: #344255;
     --text: #ecf2f8;
     --text-muted: #9aa8b8;
     --text-faint: #7f90a4;
     --accent: #dce7f3;
     --accent-soft: #243548;
     --accent-contrast: #0f1720;
-    --shadow: 0 24px 48px rgba(0, 0, 0, 0.32);
-    --shadow-soft: 0 12px 24px rgba(0, 0, 0, 0.22);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
+    --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.16);
     --focus-ring: rgba(125, 176, 255, 0.7);
-    --overlay-backdrop: rgba(5, 10, 18, 0.68);
+    --overlay-backdrop: rgba(5, 10, 18, 0.56);
     --success-bg: rgba(23, 94, 53, 0.32);
     --success-text: #9ee6ba;
     --warning-bg: rgba(133, 77, 14, 0.28);
@@ -101,10 +101,7 @@ body,
 body {
   margin: 0;
   color: var(--text);
-  background:
-    radial-gradient(circle at top left, rgba(120, 144, 170, 0.12), transparent 32%),
-    radial-gradient(circle at bottom right, rgba(70, 105, 140, 0.1), transparent 24%),
-    linear-gradient(180deg, var(--bg-accent), var(--bg));
+  background: var(--bg);
   overflow-x: hidden;
 }
 

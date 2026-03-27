@@ -124,6 +124,7 @@ describe("RequestDetailPage polling", () => {
     await screen.findByText("Request req-1");
     fireEvent.click(screen.getByRole("button", { name: "Resume and gather new" }));
     fireEvent.click(screen.getByRole("button", { name: "Redo from scratch" }));
+    expect(screen.getByRole("link", { name: "https://example.invalid/req-1" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Delete request" }));
 
     expect(await screen.findByText("Requests home")).toBeTruthy();
@@ -230,5 +231,39 @@ describe("RequestDetailPage polling", () => {
     await screen.findByText("Request req-1");
     expect(window.confirm).toHaveBeenCalledWith("Remove this request and its stored files?");
     expect(window.alert).toHaveBeenCalledWith("delete exploded");
+  });
+
+  it("uses explicit compact variant classes for detail layout sections", async () => {
+    global.fetch = vi.fn(async (path, options = {}) => {
+      if (path === "/api/requests/req-1" && (!options.method || options.method === "GET")) {
+        return jsonResponse({
+          item: {
+            id: "req-1",
+            sourceUrl: "https://example.invalid/req-1",
+            status: "ready",
+            pagesCompleted: 1,
+            resultsWritten: 10,
+            resultsReady: true,
+            excelReady: true,
+            progressMessage: "Ready to inspect",
+            error: null,
+          },
+        });
+      }
+      throw new Error(`Unhandled fetch path: ${path}`);
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/requests/req-1"]}>
+        <Routes>
+          <Route path="/requests/:requestId" element={<RequestDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Request req-1")).toBeTruthy();
+    expect(screen.getByText("Source").closest(".detail-head")?.classList.contains("detail-head-compact")).toBe(true);
+    expect(screen.getByRole("link", { name: "https://example.invalid/req-1" }).closest(".detail-source-row")?.classList.contains("detail-source-row-compact")).toBe(true);
+    expect(screen.getByRole("button", { name: "Resume and gather new" }).closest(".detail-actions")?.classList.contains("detail-actions-compact")).toBe(true);
   });
 });
