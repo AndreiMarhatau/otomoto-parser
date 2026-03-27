@@ -192,4 +192,64 @@ describe("RequestListPage", () => {
     fireEvent.keyDown(row, { key: " " });
     expect(await screen.findByText("Request detail route")).toBeTruthy();
   });
+
+  it("renders malformed, relative, and empty source URLs without crashing", async () => {
+    global.fetch = vi.fn(async (path, options = {}) => {
+      if (path === "/api/requests" && (!options.method || options.method === "GET")) {
+        return jsonResponse({
+          items: [
+            {
+              id: "req-absolute",
+              sourceUrl: "https://example.invalid/req-absolute",
+              status: "ready",
+              progressMessage: "Ready",
+              resultsWritten: 1,
+              pagesCompleted: 1,
+              createdAt: "2026-03-24T12:00:00Z",
+            },
+            {
+              id: "req-relative",
+              sourceUrl: "/relative/path",
+              status: "ready",
+              progressMessage: "Relative",
+              resultsWritten: 2,
+              pagesCompleted: 1,
+              createdAt: "2026-03-24T12:00:00Z",
+            },
+            {
+              id: "req-invalid",
+              sourceUrl: "::::",
+              status: "ready",
+              progressMessage: "Invalid",
+              resultsWritten: 3,
+              pagesCompleted: 1,
+              createdAt: "2026-03-24T12:00:00Z",
+            },
+            {
+              id: "req-empty",
+              sourceUrl: "",
+              status: "ready",
+              progressMessage: "Empty",
+              resultsWritten: 4,
+              pagesCompleted: 1,
+              createdAt: "2026-03-24T12:00:00Z",
+            },
+          ],
+        });
+      }
+      throw new Error(`Unhandled fetch path: ${path}`);
+    });
+
+    renderRequestListPage();
+
+    expect(await screen.findByText("Request req-absolute")).toBeTruthy();
+    expect(screen.getByText("example.invalid")).toBeTruthy();
+    expect(screen.getByText("Relative URL")).toBeTruthy();
+    expect(screen.getByText("Invalid URL")).toBeTruthy();
+    expect(screen.getByText("No source")).toBeTruthy();
+    expect(screen.getByText("No source URL")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "/relative/path" }).getAttribute("href")).toBe("/relative/path");
+    expect(screen.getByRole("link", { name: "https://example.invalid/req-absolute" }).getAttribute("href")).toBe("https://example.invalid/req-absolute");
+    expect(screen.queryByRole("link", { name: "::::" })).toBeNull();
+  });
 });

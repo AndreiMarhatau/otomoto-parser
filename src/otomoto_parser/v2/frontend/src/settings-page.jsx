@@ -26,10 +26,16 @@ export function SettingsPage() {
   }
 
   return (
-    <Shell title="Settings">
+    <Shell title="Settings" subtitle="Keep model configuration present but visually quiet until it is needed.">
       <Breadcrumbs items={[{ label: "Requests", to: "/" }, { label: "Settings" }]} />
       <section className="panel settings-panel">
-        <div><h2>OpenAI</h2><p className="muted">Red-flag analysis uses GPT-5.4 with web search. Stored keys override `OPENAI_API_KEY` from the server environment.</p></div>
+        <div className="section-heading">
+          <div>
+            <p className="section-kicker">OpenAI</p>
+            <h2>Red-flag analysis</h2>
+          </div>
+          <p className="muted">Red-flag analysis uses GPT-5.4 with web search. Stored keys override `OPENAI_API_KEY` from the server environment.</p>
+        </div>
         {loading ? <p className="muted">Loading settings...</p> : null}
         {error ? <p className="error-text">{error.message}</p> : null}
         {settings ? <SettingsStatus settings={settings} /> : null}

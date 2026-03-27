@@ -33,7 +33,7 @@ export function RequestResultsPage() {
   usePollingEffects({ requestId, reportState, redFlagState, setRedFlagState, loadRedFlagState, updateVehicleReportResultItem: dataState.updateVehicleReportResultItem });
 
   return (
-    <Shell title="Categorized results">
+    <Shell title="Results" subtitle="Compact listing review with quieter controls, stronger hierarchy, and less friction between categories, cards, and reports.">
       <Breadcrumbs items={[{ label: "Requests", to: "/" }, dataState.request ? { label: `Request ${dataState.request.id}`, to: `/requests/${dataState.request.id}` } : { label: "Request" }, { label: "Results" }]} />
       <section className="panel">
         {dataState.requestLoading ? <p className="muted">Loading request...</p> : null}
@@ -65,9 +65,17 @@ function ResultsSection({ dataState, geolocation, categoryActions, listTopRef, s
 }
 
 function ResultsHeader({ dataState, geolocation }) {
+  const activeCategoryMeta = dataState.results.categories?.[dataState.activeCategory];
   return (
     <div className="results-head">
-      <div><h2>{dataState.results.totalCount} listings</h2><p className="muted">Generated {new Date(dataState.results.generatedAt).toLocaleString()}</p></div>
+      <div className="results-summary">
+        <p className="section-kicker">Review queue</p>
+        <h2>{dataState.results.totalCount} listings</h2>
+        <div className="results-summary-meta">
+          <span>{activeCategoryMeta?.label || "Category"}: {dataState.results.pagination.totalItems}</span>
+          <span>Generated {new Date(dataState.results.generatedAt).toLocaleString()}</span>
+        </div>
+      </div>
       <div className="results-controls">
         <button type="button" className="button-secondary" onClick={geolocation.requestCurrentPosition} disabled={!dataState.results || geolocation.geolocationState.status === "requesting" || geolocation.geolocationState.status === "unavailable"}>{getGeolocationButtonLabel(geolocation.geolocationState)}</button>
         <span className="muted results-location-status">{formatGeolocationStatus(geolocation.geolocationState)}</span>

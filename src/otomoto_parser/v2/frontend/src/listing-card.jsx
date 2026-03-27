@@ -8,21 +8,28 @@ export function ListingCard({ item, assignableCategories, categoryBusy, onAssign
   const createdAt = item.createdAt ? new Date(item.createdAt).toLocaleString() : "—";
   const reportStatus = item.vehicleReport?.status;
   const reportStateTitle = reportTitle(reportStatus, item.vehicleReport);
-  const specs = listingSpecs(item, createdAt);
+  const summarySpecs = listingSummarySpecs(item);
+  const detailSpecs = listingDetailSpecs(item, createdAt);
   return (
     <article className={categoryPickerOpen ? "listing-card listing-card-overlay-open" : "listing-card"}>
       <a href={item.url} target="_blank" rel="noreferrer" className="listing-card-anchor" aria-label={`Open listing: ${item.title || "listing"}`} />
       <div className="listing-card-body">
         <div className="listing-image-wrap">{item.imageUrl ? <img src={item.imageUrl} alt={item.title} className="listing-image" /> : <div className="listing-image placeholder" />}</div>
         <div className="listing-content">
-          <div className="listing-topline"><h3>{item.title}</h3><strong>{item.price ? `${item.price.toLocaleString("pl-PL")} ${item.priceCurrency}` : "—"}</strong></div>
-          <p className="muted">{item.shortDescription || "No short description."}</p>
+          <div className="listing-topline">
+            <div className="listing-heading">
+              <h3>{item.title}</h3>
+              <p className="muted">{item.shortDescription || "No short description."}</p>
+            </div>
+            <strong className="listing-price">{item.price ? `${item.price.toLocaleString("pl-PL")} ${item.priceCurrency}` : "—"}</strong>
+          </div>
+          <div className="chip-row chip-row-primary">{summarySpecs.map((spec) => <span key={spec.label} className={`chip chip-${spec.tone}`}><span className="chip-label">{spec.label}</span><span>{spec.value}</span></span>)}</div>
           <ListingActions item={item} assignableCategories={assignableCategories} categoryBusy={categoryBusy} onAssignCategories={onAssignCategories} onCreateCategory={onCreateCategory} onOpenReport={onOpenReport} onOpenChange={setCategoryPickerOpen} reportStatus={reportStatus} reportStateTitle={reportStateTitle} />
           <div className="listing-place-row">
             {item.location ? <button type="button" className="listing-place-button chip-interactive" title={`Preview ${item.location} on map`} onClick={() => onOpenLocation({ title: item.title, location: item.location })}>{item.location}</button> : <span className="listing-place-text">No location</span>}
             <span className="listing-distance-text">{distanceLabel}</span>
           </div>
-          <div className="chip-row">{specs.map((spec) => <span key={spec.label} className={`chip chip-${spec.tone}`}><span className="chip-label">{spec.label}</span><span>{spec.value}</span></span>)}</div>
+          <div className="chip-row chip-row-secondary">{detailSpecs.map((spec) => <span key={spec.label} className={`chip chip-${spec.tone}`}><span className="chip-label">{spec.label}</span><span>{spec.value}</span></span>)}</div>
         </div>
       </div>
     </article>
@@ -50,14 +57,19 @@ function reportTitle(reportStatus, vehicleReport) {
   return null;
 }
 
-function listingSpecs(item, createdAt) {
+function listingSummarySpecs(item) {
   return [
     ...(item.category === "Price evaluation out of range" && item.dataVerified === true ? [{ label: "Status", value: "Verified data", tone: "verified" }] : []),
     { label: "Price eval", value: item.priceEvaluation || "No price evaluation", tone: "price" },
-    { label: "Engine", value: item.engineCapacity || "No engine capacity", tone: "engine" },
-    { label: "Power", value: item.enginePower || "No power", tone: "engine" },
     { label: "Year", value: item.year || "No year", tone: "year" },
     { label: "Mileage", value: item.mileage || "No mileage", tone: "mileage" },
+  ];
+}
+
+function listingDetailSpecs(item, createdAt) {
+  return [
+    { label: "Engine", value: item.engineCapacity || "No engine capacity", tone: "engine" },
+    { label: "Power", value: item.enginePower || "No power", tone: "engine" },
     { label: "Fuel", value: item.fuelType || "No fuel type", tone: "drive" },
     { label: "Gearbox", value: item.transmission || "No transmission", tone: "drive" },
     { label: "Created", value: createdAt, tone: "time" },

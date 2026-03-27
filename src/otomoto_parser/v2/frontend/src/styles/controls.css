@@ -1,0 +1,171 @@
+button,
+.button-link {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  font: inherit;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  text-decoration: none;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    transform 140ms ease,
+    box-shadow 140ms ease,
+    opacity 140ms ease;
+}
+
+button:hover,
+.button-link:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-soft);
+}
+
+button:disabled,
+.button-disabled {
+  pointer-events: none;
+  opacity: 0.46;
+  box-shadow: none;
+}
+
+.button-secondary,
+.button-link-secondary,
+.icon-button-secondary {
+  background: var(--panel-muted);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.icon-button-danger {
+  background: var(--danger-bg);
+  border-color: transparent;
+  color: var(--danger-text);
+}
+
+.icon-button {
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 12px;
+}
+
+.icon-button svg,
+button svg,
+.button-link svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+.icon-button-disabled {
+  pointer-events: none;
+  opacity: 0.45;
+}
+
+textarea,
+input,
+select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.85rem 0.95rem;
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-strong);
+}
+
+textarea::placeholder,
+input::placeholder {
+  color: var(--text-faint);
+}
+
+textarea:focus-visible,
+input:focus-visible,
+select:focus-visible,
+button:focus-visible,
+.button-link:focus-visible,
+.topbar-link:focus-visible,
+.hero-link:focus-visible,
+.request-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.chip-row {
+  gap: 0.45rem;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.36rem 0.56rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: var(--panel-muted);
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.chip-label {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 800;
+  opacity: 0.72;
+}
+
+.chip-price {
+  background: var(--chip-price-bg);
+  color: var(--chip-price-text);
+}
+
+.chip-verified {
+  background: var(--chip-verified-bg);
+  color: var(--chip-verified-text);
+}
+
+.chip-engine {
+  background: var(--chip-engine-bg);
+  color: var(--chip-engine-text);
+}
+
+.chip-year {
+  background: var(--chip-year-bg);
+  color: var(--chip-year-text);
+}
+
+.chip-mileage {
+  background: var(--chip-mileage-bg);
+  color: var(--chip-mileage-text);
+}
+
+.chip-drive {
+  background: var(--chip-drive-bg);
+  color: var(--chip-drive-text);
+}
+
+.chip-place,
+.chip-time {
+  background: var(--panel-muted);
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+
+.chip-interactive {
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    transform 140ms ease;
+}
+
+.chip-interactive:hover {
+  transform: translateY(-1px);
+}

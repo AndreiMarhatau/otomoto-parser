@@ -6,7 +6,7 @@
   "scripts": {
     "build": "vite build",
     "coverage:check": "python3 ../../../../tools/check_source_coverage.py --scope frontend",
-    "lint": "eslint src --max-warnings=0",
+    "lint": "eslint src --max-warnings=0 && python3 ../../../../tools/check_frontend_style_tokens.py",
     "test": "vitest run --coverage"
   },
   "dependencies": {
