@@ -133,6 +133,7 @@ class ServiceAnalysisMixin:
         record = self._find_listing_record(request_id, listing_id)
         listing_page = self.listing_page_fetcher(listing.get("url"), timeout_s=float(self.parser_options.get("request_timeout_s", 45.0))) if isinstance(listing.get("url"), str) and listing.get("url") else None
         report_payload = _read_json(self._vehicle_report_path(request_id, str(listing_id)), None)
+        mapped_vehicle_report = build_vehicle_report_payload(report_payload)
         return (
             {
                 "analysisContext": {
@@ -142,10 +143,10 @@ class ServiceAnalysisMixin:
                         "warnings": "Things that need verification or careful attention before buying, including uncertainty, missing proof, or inconsistencies.",
                         "greenFlags": "Confirmed positive facts about this exact car or listing.",
                     },
-                    "vehicleReportAvailable": report_payload is not None,
+                    "vehicleReportAvailable": mapped_vehicle_report is not None,
                 },
                 "listing": build_listing_payload(listing, record, listing_page if isinstance(listing_page, dict) else None),
-                "vehicleReport": build_vehicle_report_payload(report_payload),
+                "vehicleReport": mapped_vehicle_report,
             },
             _build_report_snapshot_id(report_payload),
         )
