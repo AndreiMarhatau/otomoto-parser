@@ -1,6 +1,13 @@
 from __future__ import annotations
 
 from otomoto_parser.v2._service_analysis_payload import build_listing_payload, build_vehicle_report_payload
+from otomoto_parser.v2._service_analysis_report_payload import (
+    _merge_wrapper_values as _merge_report_wrapper_values,
+    _sanitize_summary_value,
+    _timeline_payload,
+    _trusted_identifiers_payload,
+    build_vehicle_report_payload as build_analysis_report_payload,
+)
 from otomoto_parser.v2._service_analysis_payload_support import _flatten_wrapper_values, _merge_wrapper_evidence, _should_skip_report_field
 from otomoto_parser.v2._service_analysis_report_findings import _extract_important_findings, _finding_from_scalar
 from otomoto_parser.v2._service_analysis_report_normalization import (
@@ -172,6 +179,161 @@ def test_build_vehicle_report_payload_keeps_full_report_and_summary_only() -> No
 def test_build_vehicle_report_payload_returns_none_for_invalid_payload() -> None:
     assert build_vehicle_report_payload(None) is None
     assert build_vehicle_report_payload({"identity": {"vin": "VIN"}}) is None
+
+
+def test_analysis_report_payload_preserves_normalized_report_contract() -> None:
+    events = [{"type": "registration", "date": "2014-01-01", "label": "first"}] * 9
+    events[1] = {"type": "inspection", "mileage": 120000, "country": "PL", "source": "cepik"}
+    events[2] = {"type": "sale", "label": "auction"}
+
+    payload = build_analysis_report_payload(
+        {
+            "identity": {"vin": "VIN", "registrationNumber": "DLU8613F", "firstRegistrationDate": "2014-01-01"},
+            "summary": {"autodnaAvailable": True},
+            "report": {
+                "vin_number": "VIN",
+                "registration_number": "DLU8613F",
+                "first_registration_date": "2014-01-01",
+                "api_version": "1.0.20",
+                "technical_data": {
+                    "technicalData": {
+                        "basicData": {"make": "Mercedes-Benz", "color": "White"},
+                        "ownershipHistory": {"numberOfOwners": 2},
+                    }
+                },
+                "timeline_data": {"timelineData": {"events": events + ["skip"]}},
+                "autodna_data": {
+                    "summary": {
+                        "events": 3,
+                        "damage": "Minor rear damage reported",
+                    },
+                    "history": [
+                        {"type": "damage", "date": "2018-03-01", "country": "DE", "source": "AutoDNA", "description": "Rear bumper repair"},
+                    ],
+                },
+                "carfax_data": {
+                    "summary": {"entries": 1},
+                    "title": {"rebuilt": True},
+                    "checks": [{"odometerRollback": True, "date": "2020-01-01", "mileage": 180000, "country": "US"}],
+                },
+            },
+        }
+    )
+
+    assert payload["trustedIdentifiers"] == {
+        "vin": "VIN",
+        "registrationNumber": "DLU8613F",
+        "firstRegistrationDate": "2014-01-01",
+        "apiVersion": "1.0.20",
+    }
+    assert payload["sourceStatus"] == {"apiVersion": "1.0.20", "autodnaAvailable": True}
+    assert payload["technicalData"] == {
+        "basicData": {"make": "Mercedes-Benz", "color": "White"},
+        "ownershipHistory": {"numberOfOwners": 2},
+    }
+    assert payload["historyEvents"] == [
+        {"date": "2014-01-01", "type": "registration", "label": "first", "source": "timeline"},
+        {"type": "inspection", "mileage": 120000, "country": "PL", "source": "cepik"},
+        {"date": "2018-03-01", "type": "damage", "label": "Rear bumper repair", "country": "DE", "source": "AutoDNA"},
+    ]
+    assert payload["timeline"] == {
+        "eventCount": 9,
+        "eventTypes": ["registration", "inspection", "sale"],
+        "events": [
+            {"date": "2014-01-01", "type": "registration", "label": "first"},
+            {"type": "inspection", "mileage": 120000, "country": "PL", "source": "cepik"},
+            {"type": "sale", "label": "auction"},
+            {"date": "2014-01-01", "type": "registration", "label": "first"},
+            {"date": "2014-01-01", "type": "registration", "label": "first"},
+            {"date": "2014-01-01", "type": "registration", "label": "first"},
+            {"date": "2014-01-01", "type": "registration", "label": "first"},
+            {"date": "2014-01-01", "type": "registration", "label": "first"},
+        ],
+    }
+    assert payload["autodnaSummary"] == {"events": 3, "damage": "Minor rear damage reported"}
+    assert payload["carfaxSummary"] == {"entries": 1}
+    assert payload["reportSummaries"] == [
+        {"source": "autodna", "label": "Events", "value": 3},
+        {"source": "autodna", "label": "Damage", "category": "damage", "value": "Minor rear damage reported"},
+        {"source": "carfax", "label": "Entries", "value": 1},
+    ]
+    assert payload["importantFindings"] == [
+        {"source": "autodna", "label": "Damage", "category": "damage", "value": "Minor rear damage reported"},
+        {"source": "autodna", "label": "Damage", "category": "damage", "value": "Rear bumper repair", "date": "2018-03-01", "country": "DE"},
+        {"source": "carfax", "label": "Rebuilt", "category": "title", "value": True},
+        {"source": "carfax", "label": "Odometerrollback", "category": "mileage", "value": True, "date": "2020-01-01", "mileage": 180000, "country": "US"},
+    ]
+
+
+def test_analysis_report_payload_uses_normalized_timeline_when_raw_timeline_is_absent() -> None:
+    payload = build_analysis_report_payload(
+        {
+            "report": {
+                "autodna_data": {
+                    "history": [
+                        {"type": "damage", "date": "2018-03-01", "country": "DE", "source": "AutoDNA", "description": "Rear bumper repair"},
+                        {"type": "damage", "date": "2018-03-02", "country": "DE", "source": "AutoDNA", "description": "Second repair"},
+                    ]
+                }
+            }
+        }
+    )
+
+    assert payload["historyEvents"] == [
+        {"date": "2018-03-01", "type": "damage", "label": "Rear bumper repair", "country": "DE", "source": "AutoDNA"},
+        {"date": "2018-03-02", "type": "damage", "label": "Second repair", "country": "DE", "source": "AutoDNA"},
+    ]
+    assert payload["timeline"] == {
+        "eventCount": 2,
+        "eventTypes": ["damage"],
+        "events": [
+            {"date": "2018-03-01", "type": "damage", "label": "Rear bumper repair", "country": "DE", "source": "AutoDNA"},
+            {"date": "2018-03-02", "type": "damage", "label": "Second repair", "country": "DE", "source": "AutoDNA"},
+        ],
+    }
+
+
+def test_analysis_report_payload_internal_helpers_cover_summary_sanitization() -> None:
+    assert build_analysis_report_payload(None) is None
+    assert _trusted_identifiers_payload({"identity": "bad"}, {}) is None
+    assert _trusted_identifiers_payload(
+        {"identity": {"vin": "VIN", "advertId": "4"}},
+        {"registration_number": "DLU8613F", "first_registration_date": "2014-01-01", "api_version": "1.0.20"},
+    ) == {
+        "vin": "VIN",
+        "advertId": "4",
+        "registrationNumber": "DLU8613F",
+        "firstRegistrationDate": "2014-01-01",
+        "apiVersion": "1.0.20",
+    }
+    assert _timeline_payload(None, None) is None
+    assert _timeline_payload({"timelineData": {"events": ["skip", {"type": "registration", "date": "2014-01-01"}]}}, None) == {
+        "eventCount": 1,
+        "eventTypes": ["registration"],
+        "events": [{"date": "2014-01-01", "type": "registration"}],
+    }
+    assert _sanitize_summary_value(
+        {
+            "wrapper": {
+                "damage": "Front-end damage found",
+                "messages": ["a", "b"],
+            },
+            "country": "US",
+            "request_id": "skip",
+            "status": "  ",
+        }
+    ) == {
+        "country": "US",
+        "damage": "Front-end damage found",
+        "messages": ["a", "b"],
+    }
+    assert _sanitize_summary_value([None, "", [], {}, {"wrapper": {"data": "Single summary line"}}]) == ["Single summary line"]
+    assert _merge_report_wrapper_values([]) is None
+    assert _merge_report_wrapper_values(["reported", "confirmed"]) == ["reported", "confirmed"]
+    assert _merge_report_wrapper_values([{"damage": "reported"}, "confirmed"]) == {
+        "damage": "reported",
+        "messages": ["confirmed"],
+    }
 
 
 def test_report_normalization_internal_helpers_cover_non_event_and_recursive_paths() -> None:
