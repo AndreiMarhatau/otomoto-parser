@@ -19,6 +19,24 @@ describe("VehicleReportModal", () => {
     vi.restoreAllMocks();
   });
 
+  it("renders nothing when closed", () => {
+    const { container } = render(
+      <VehicleReportModal
+        state={null}
+        redFlagState={null}
+        settings={{ openaiApiKeyConfigured: false }}
+        onClose={vi.fn()}
+        onRegenerate={vi.fn()}
+        onLookup={vi.fn()}
+        onCancelLookup={vi.fn()}
+        onStartRedFlags={vi.fn()}
+        onCancelRedFlags={vi.fn()}
+      />,
+    );
+
+    expect(container.innerHTML).toBe("");
+  });
+
   it("renders lookup workflows and normalizes lookup submissions", async () => {
     const onLookup = vi.fn();
     const onCancelLookup = vi.fn();
@@ -56,8 +74,12 @@ describe("VehicleReportModal", () => {
 
     expect(screen.getByText("Needs input")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Find red flags" })).toHaveProperty("disabled", true);
+    expect(screen.getByLabelText("VIN").value).toBe("VIN123");
+    expect(screen.getByLabelText("Registration number").value).toBe("WW2222C");
+    expect(screen.getByLabelText("First registration from").value).toBe("2024-01-01");
+    expect(screen.getByLabelText("Search until").value).toBe("2024-01-10");
 
-    const registrationInput = screen.getByDisplayValue("WW2222C");
+    const registrationInput = screen.getByLabelText("Registration number");
     fireEvent.change(registrationInput, { target: { value: " wx 0007z " } });
     fireEvent.click(screen.getByRole("button", { name: "Search date range" }));
 
@@ -97,6 +119,91 @@ describe("VehicleReportModal", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel lookup" }));
     expect(onCancelLookup).toHaveBeenCalled();
+  });
+
+  it("preserves dirty lookup edits across polling updates for the same listing", () => {
+    const onLookup = vi.fn();
+    const baseState = {
+      item: listingItem,
+      loading: false,
+      regenerating: false,
+      submittingLookup: false,
+      cancellingLookup: false,
+      error: null,
+    };
+
+    const { rerender } = render(
+      <VehicleReportModal
+        state={{
+          ...baseState,
+          data: {
+            status: "needs_input",
+            progressMessage: "Need a date range",
+            identity: { vin: "VIN123", registrationNumber: "WW2222C" },
+            lookupOptions: {
+              registrationNumber: "WW2222C",
+              dateRange: { from: "2024-01-01", to: "2024-01-10" },
+            },
+            lookup: {
+              registrationNumber: "WW2222C",
+              dateRange: { from: "2024-02-01", to: "2024-02-05" },
+            },
+          },
+        }}
+        redFlagState={{ item: listingItem, data: { status: "idle" }, loading: false, running: false, cancelling: false, error: null }}
+        settings={{ openaiApiKeyConfigured: false }}
+        onClose={vi.fn()}
+        onRegenerate={vi.fn()}
+        onLookup={onLookup}
+        onCancelLookup={vi.fn()}
+        onStartRedFlags={vi.fn()}
+        onCancelRedFlags={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Registration number"), { target: { value: " WX 9999Q " } });
+    fireEvent.change(screen.getByLabelText("First registration from"), { target: { value: "2024-03-01" } });
+    fireEvent.change(screen.getByLabelText("Search until"), { target: { value: "2024-03-12" } });
+
+    rerender(
+      <VehicleReportModal
+        state={{
+          ...baseState,
+          data: {
+            status: "needs_input",
+            progressMessage: "Still waiting for a valid date range...",
+            identity: { vin: "VIN123", registrationNumber: "WW2222C" },
+            lookupOptions: {
+              registrationNumber: "WW1111A",
+              dateRange: { from: "2024-01-05", to: "2024-01-15" },
+            },
+            lookup: {
+              registrationNumber: "WW1111A",
+              dateRange: { from: "2024-02-02", to: "2024-02-06" },
+            },
+          },
+        }}
+        redFlagState={{ item: listingItem, data: { status: "idle" }, loading: false, running: false, cancelling: false, error: null }}
+        settings={{ openaiApiKeyConfigured: false }}
+        onClose={vi.fn()}
+        onRegenerate={vi.fn()}
+        onLookup={onLookup}
+        onCancelLookup={vi.fn()}
+        onStartRedFlags={vi.fn()}
+        onCancelRedFlags={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText("Registration number").value).toBe("WX9999Q");
+    expect(screen.getByLabelText("First registration from").value).toBe("2024-03-01");
+    expect(screen.getByLabelText("Search until").value).toBe("2024-03-12");
+
+    fireEvent.click(screen.getByRole("button", { name: "Search date range" }));
+    expect(onLookup).toHaveBeenCalledWith({
+      registrationNumber: "WX9999Q",
+      dateFrom: "2024-03-01",
+      dateTo: "2024-03-12",
+    });
   });
 
   it("renders cached reports, analysis output, and report actions", () => {
@@ -170,6 +277,10 @@ describe("VehicleReportModal", () => {
     expect(screen.getByText("Used web search for VIN-related checks.")).toBeTruthy();
     expect(screen.getByText("View report")).toBeTruthy();
     expect(screen.getAllByText("Technical data").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("AutoDNA").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Unavailable").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Carfax").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Available").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: "Regenerate report" }));
     fireEvent.click(screen.getByRole("button", { name: "Run again" }));

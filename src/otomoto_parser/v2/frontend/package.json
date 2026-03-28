@@ -10,14 +10,18 @@
     "test": "vitest run --coverage"
   },
   "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^7.3.9",
+    "@mui/material": "^7.3.9",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-router-dom": "^7.6.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.23.0",
-    "@vitejs/plugin-react": "^5.0.4",
     "@testing-library/react": "^16.3.0",
+    "@vitejs/plugin-react": "^5.0.4",
     "@vitest/coverage-v8": "^4.1.1",
     "eslint": "^9.23.0",
     "globals": "^16.0.0",

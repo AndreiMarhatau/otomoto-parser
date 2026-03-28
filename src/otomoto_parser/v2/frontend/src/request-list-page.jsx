@@ -1,17 +1,31 @@
 import React from "react";
+import {
+  Alert,
+  Button,
+  Card,
+  CardActionArea,
+  CardContent,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  IconButton,
+  Stack,
+  TextField,
+  Typography,
+} from "@mui/material";
 import { useNavigate } from "react-router-dom";
 
 import { api } from "./api";
 import { inProgressStatuses } from "./constants";
 import { compactSourceUrl, describeSourceUrl } from "./formatters";
 import { IconClose, IconPlus, IconRefresh, IconTrash } from "./icons";
-import { IconButton, Shell, StatusPill } from "./layout";
+import { Shell, StatusPill } from "./layout";
 import { usePolling } from "./use-polling";
 
 export function RequestListPage() {
   const navigate = useNavigate();
   const openCreateButtonRef = React.useRef(null);
-  const shouldRestoreFocusRef = React.useRef(false);
   const [createOpen, setCreateOpen] = React.useState(false);
   const [url, setUrl] = React.useState("");
   const [creating, setCreating] = React.useState(false);
@@ -19,37 +33,12 @@ export function RequestListPage() {
   const { data, loading, reload } = usePolling(() => api("/api/requests"), true, "/api/requests");
   const items = data?.items || [];
 
-  React.useEffect(() => {
-    if (createOpen || !shouldRestoreFocusRef.current) return;
-    shouldRestoreFocusRef.current = false;
-    const timer = window.setTimeout(() => {
-      openCreateButtonRef.current?.focus();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [createOpen]);
-
-  function openCreateDialog() {
-    shouldRestoreFocusRef.current = false;
-    setUrl("");
-    setError(null);
-    setCreateOpen(true);
-  }
-
-  function closeCreateDialog() {
-    if (creating) return false;
-    shouldRestoreFocusRef.current = true;
-    setCreateOpen(false);
-    setError(null);
-    return true;
-  }
-
   async function submit(event) {
     event.preventDefault();
     setCreating(true);
     setError(null);
     try {
       const payload = await api("/api/requests", { method: "POST", body: JSON.stringify({ url }) });
-      shouldRestoreFocusRef.current = false;
       setCreateOpen(false);
       navigate(`/requests/${payload.item.id}`);
     } catch (submitError) {
@@ -74,22 +63,37 @@ export function RequestListPage() {
   return (
     <Shell
       title="Requests"
-      subtitle="Review saved parser runs and reopen the ones that matter. Creation now stays out of the history view."
-      actions={<div className="page-header-actions-group"><button ref={openCreateButtonRef} type="button" onClick={openCreateDialog}><IconPlus /> New request</button><IconButton title="Refresh request list" tone="secondary" onClick={() => reload()}><IconRefresh /></IconButton></div>}
+      subtitle="Review saved parser runs and reopen the ones that matter. Creation stays separate from history."
+      actions={
+        <>
+          <Button ref={openCreateButtonRef} variant="contained" startIcon={<IconPlus />} onClick={() => { setUrl(""); setError(null); setCreateOpen(true); }}>
+            New request
+          </Button>
+          <Button variant="outlined" startIcon={<IconRefresh />} onClick={() => reload()}>Refresh request list</Button>
+        </>
+      }
     >
-      <section className="panel panel-list">
-        <div className="section-heading section-heading-inline">
+      <Stack spacing={2}>
+        <Stack direction={{ xs: "column", md: "row" }} spacing={1} justifyContent="space-between">
           <div>
-            <p className="section-kicker">History</p>
-            <h2>{items.length ? `${items.length} saved request${items.length === 1 ? "" : "s"}` : "History"}</h2>
+            <Typography variant="overline" color="text.secondary">History</Typography>
+            <Typography variant="h5">{items.length ? `${items.length} saved request${items.length === 1 ? "" : "s"}` : "History"}</Typography>
           </div>
-          <p className="muted">Runs stay here with their latest parser state and outputs.</p>
-        </div>
-        {loading ? <p className="muted">Loading requests...</p> : null}
-        {!loading && items.length === 0 ? <div className="empty-state empty-state-ruled"><strong>No requests yet.</strong><p className="muted">Use the rounded + action to start the first parser run.</p></div> : null}
-        <div className="request-list request-list-compact">{items.map((item) => <RequestRow key={item.id} item={item} navigate={navigate} onRemove={removeRequest} />)}</div>
-      </section>
-      {createOpen ? <RequestCreateDialog url={url} setUrl={setUrl} creating={creating} error={error} onSubmit={submit} onClose={closeCreateDialog} /> : null}
+          <Typography variant="body2" color="text.secondary">Runs stay here with their latest parser state and outputs.</Typography>
+        </Stack>
+        {loading ? <Typography color="text.secondary">Loading requests...</Typography> : null}
+        {!loading && items.length === 0 ? <Alert severity="info">No requests yet. Use New request to start the first parser run.</Alert> : null}
+        <Stack spacing={1.5}>{items.map((item) => <RequestRow key={item.id} item={item} navigate={navigate} onRemove={removeRequest} />)}</Stack>
+      </Stack>
+      <RequestCreateDialog
+        open={createOpen}
+        url={url}
+        setUrl={setUrl}
+        creating={creating}
+        error={error}
+        onSubmit={submit}
+        onClose={() => { if (!creating) setCreateOpen(false); }}
+      />
     </Shell>
   );
 }
@@ -97,109 +101,79 @@ export function RequestListPage() {
 function RequestRow({ item, navigate, onRemove }) {
   const sourceMeta = describeSourceUrl(item.sourceUrl);
   return (
-    <article key={item.id} className="request-row" role="link" tabIndex={0} onClick={() => navigate(`/requests/${item.id}`)} onKeyDown={(event) => handleRowKeyDown(event, item.id, navigate)}>
-      <div className="request-row-top">
-        <div className="request-row-main">
-          <div className="request-row-heading">
-            <strong className="request-row-title">{`Request ${item.id}`}</strong>
-            <span className="request-row-source">{sourceMeta.label}</span>
-          </div>
-          <p>{item.progressMessage}</p>
-          <div className="request-row-meta request-row-meta-compact"><span>{item.resultsWritten} listings</span><span>{item.pagesCompleted} pages</span><span>{new Date(item.createdAt).toLocaleString()}</span></div>
-        </div>
-        <div className="request-row-controls">
-          <StatusPill status={item.status} />
-          <IconButton title="Delete request" tone="danger" disabled={inProgressStatuses.has(item.status)} onClick={(event) => { event.stopPropagation(); onRemove(item.id); }}><IconTrash /></IconButton>
-        </div>
-      </div>
-      {sourceMeta.href ? (
-        <a href={sourceMeta.href} target="_blank" rel="noreferrer" className="request-row-url" title={sourceMeta.displayValue} aria-label={sourceMeta.displayValue} onClick={(event) => event.stopPropagation()}>{compactSourceUrl(sourceMeta.displayValue, 56)}</a>
-      ) : (
-        <span className="request-row-url" title={sourceMeta.displayValue}>{compactSourceUrl(sourceMeta.displayValue, 56)}</span>
-      )}
-    </article>
+    <Card variant="outlined">
+      <CardActionArea onClick={() => navigate(`/requests/${item.id}`)} sx={{ borderRadius: 3 }}>
+        <CardContent>
+          <Stack direction={{ xs: "column", md: "row" }} spacing={2} justifyContent="space-between">
+            <Stack spacing={1} sx={{ minWidth: 0 }}>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ sm: "center" }}>
+                <Typography variant="subtitle1">{`Request ${item.id}`}</Typography>
+                <Typography variant="body2" color="text.secondary">{sourceMeta.label}</Typography>
+              </Stack>
+              <Typography variant="body2">{item.progressMessage}</Typography>
+              <Typography variant="body2" color="text.secondary">{`${item.resultsWritten} listings • ${item.pagesCompleted} pages • ${new Date(item.createdAt).toLocaleString()}`}</Typography>
+              {sourceMeta.href ? (
+                <Typography component="a" href={sourceMeta.href} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()} variant="body2" color="primary.main">
+                  {compactSourceUrl(sourceMeta.displayValue, 56)}
+                </Typography>
+              ) : (
+                <Typography variant="body2" color="text.secondary">{compactSourceUrl(sourceMeta.displayValue, 56)}</Typography>
+              )}
+            </Stack>
+            <Stack direction="row" spacing={1} alignItems="flex-start">
+              <StatusPill status={item.status} />
+              <IconButton
+                aria-label="Delete request"
+                color="error"
+                disabled={inProgressStatuses.has(item.status)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRemove(item.id);
+                }}
+              >
+                <IconTrash />
+              </IconButton>
+            </Stack>
+          </Stack>
+        </CardContent>
+      </CardActionArea>
+    </Card>
   );
 }
 
-function RequestCreateDialog({ url, setUrl, creating, error, onSubmit, onClose }) {
-  const titleId = React.useId();
-  const descriptionId = React.useId();
-  const dialogRef = React.useRef(null);
-  const textareaRef = React.useRef(null);
-
-  React.useEffect(() => {
-    textareaRef.current?.focus();
-  }, []);
-
-  React.useEffect(() => {
-    function handleKeyDown(event) {
-      if (event.key === "Escape") {
-        const closed = onClose();
-        if (closed) event.preventDefault();
-        return;
-      }
-      if (event.key !== "Tab") return;
-      const focusableElements = getFocusableElements(dialogRef.current);
-      if (!focusableElements.length) {
-        event.preventDefault();
-        return;
-      }
-      const activeElement = document.activeElement;
-      const activeIndex = focusableElements.indexOf(activeElement);
-      event.preventDefault();
-      if (event.shiftKey) {
-        const previousIndex = activeIndex <= 0 ? focusableElements.length - 1 : activeIndex - 1;
-        focusableElements[previousIndex]?.focus();
-        return;
-      }
-      const nextIndex = activeIndex === -1 || activeIndex === focusableElements.length - 1 ? 0 : activeIndex + 1;
-      focusableElements[nextIndex]?.focus();
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
-
+function RequestCreateDialog({ open, url, setUrl, creating, error, onSubmit, onClose }) {
   return (
-    <div className="modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <div ref={dialogRef} className="modal-panel modal-panel-compact" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} onClick={(event) => event.stopPropagation()}>
-        <div className="modal-head">
-          <div>
-            <p className="eyebrow">New request</p>
-            <h2 id={titleId}>Create request</h2>
-            <p id={descriptionId} className="muted">Paste an Otomoto search URL. Parsing starts immediately and the run is added to history.</p>
-          </div>
-          <IconButton title="Close dialog" tone="secondary" onClick={onClose}><IconClose /></IconButton>
-        </div>
-        <form className="request-form request-create-form" onSubmit={onSubmit}>
-          <textarea ref={textareaRef} value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://www.otomoto.pl/osobowe/..." rows={4} required />
-          <div className="form-actions form-actions-compact">
-            <button type="submit" disabled={creating}>{creating ? "Creating..." : "Create request"}</button>
-            <button type="button" className="button-secondary" onClick={onClose} disabled={creating}>Cancel</button>
-          </div>
-          {error ? <p className="error-text">{error}</p> : null}
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+      <DialogTitle sx={{ pr: 6 }}>
+        Create request
+        <IconButton aria-label="Close dialog" onClick={onClose} sx={{ position: "absolute", right: 12, top: 12 }}>
+          <IconClose />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Paste an OTOMOTO search URL. Parsing starts immediately and the run is added to history.
+        </Typography>
+        <form id="request-create-form" onSubmit={onSubmit}>
+          <TextField
+            multiline
+            minRows={4}
+            autoFocus
+            fullWidth
+            value={url}
+            onChange={(event) => setUrl(event.target.value)}
+            placeholder="https://www.otomoto.pl/osobowe/..."
+            required
+          />
         </form>
-      </div>
-    </div>
+        {error ? <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert> : null}
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 3 }}>
+        <Button onClick={onClose} disabled={creating}>Cancel</Button>
+        <Button type="submit" form="request-create-form" variant="contained" disabled={creating}>
+          {creating ? "Creating..." : "Create request"}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
-}
-
-function handleRowKeyDown(event, requestId, navigate) {
-  if (event.target !== event.currentTarget) return;
-  if (event.key === "Enter" || event.key === " ") {
-    event.preventDefault();
-    navigate(`/requests/${requestId}`);
-  }
-}
-
-function getFocusableElements(container) {
-  if (!container) return [];
-  const selector = [
-    'button:not([disabled])',
-    'textarea:not([disabled])',
-    'input:not([disabled])',
-    'select:not([disabled])',
-    'a[href]',
-    '[tabindex]:not([tabindex="-1"])',
-  ].join(", ");
-  return Array.from(container.querySelectorAll(selector)).filter((element) => !element.hasAttribute("disabled"));
 }

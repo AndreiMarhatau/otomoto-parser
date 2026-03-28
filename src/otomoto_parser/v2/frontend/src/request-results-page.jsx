@@ -1,13 +1,21 @@
 import React from "react";
+import {
+  Alert,
+  Card,
+  CardContent,
+  Pagination,
+  Stack,
+  Typography,
+} from "@mui/material";
 import { useParams } from "react-router-dom";
 
 import { api } from "./api";
-import { pageSizeOptions, systemCategoryOrder } from "./constants";
-import { IconChevronLeft, IconChevronRight, IconEdit, IconPlus, IconTrash } from "./icons";
-import { Breadcrumbs, IconButton, Shell, buildPageItems, scrollWindowToPosition } from "./layout";
-import { formatDistanceChip, formatGeolocationStatus, getGeolocationButtonLabel } from "./location-utils";
+import { Breadcrumbs, Shell, buildPageItems, scrollWindowToPosition } from "./layout";
+import { formatDistanceChip } from "./location-utils";
 import { ListingCard } from "./listing-card";
 import { LocationModal } from "./location-modal";
+import { ResultsCategoryRail } from "./results-category-rail";
+import { ResultsHeaderCard } from "./results-header-card";
 import { useCategoryActions } from "./use-category-actions";
 import { useRedFlagState } from "./use-red-flag-state";
 import { useReportState } from "./use-report-state";
@@ -25,7 +33,6 @@ export function RequestResultsPage() {
   const reportState = useReportState({ requestId, loadRedFlagState, updateVehicleReportResultItem: dataState.updateVehicleReportResultItem, redFlagRequestRef, setRedFlagState });
   const [locationPreview, setLocationPreview] = React.useState(null);
   const categoryActions = useCategoryActions({ requestId, results: dataState.results, activeCategory: dataState.activeCategory, setActiveCategory: dataState.setActiveCategory, setCurrentPage: dataState.setCurrentPage, bumpResultsReload: dataState.bumpResultsReload, setResultsError: dataState.setResultsError, createCategory: dataState.createCategory, setCategoryBusyByListing: dataState.setCategoryBusyByListing });
-  const categoryMap = dataState.results?.categories || {};
   const currentItems = dataState.results?.items || [];
   const geolocation = useResultsGeolocation(dataState.results, currentItems);
 
@@ -33,14 +40,14 @@ export function RequestResultsPage() {
   usePollingEffects({ requestId, reportState, redFlagState, setRedFlagState, loadRedFlagState, updateVehicleReportResultItem: dataState.updateVehicleReportResultItem });
 
   return (
-    <Shell title="Results" subtitle="Compact listing review with flatter sections, quieter controls, and a denser report flow.">
+    <Shell title="Results" subtitle="Listing review with clearer controls, stronger hierarchy, and a layout that stays readable on mobile." maxWidth="xl">
       <Breadcrumbs items={[{ label: "Requests", to: "/" }, dataState.request ? { label: `Request ${dataState.request.id}`, to: `/requests/${dataState.request.id}` } : { label: "Request" }, { label: "Results" }]} />
-      <section className="panel">
-        {dataState.requestLoading ? <p className="muted">Loading request...</p> : null}
-        {dataState.request && !dataState.request.resultsReady ? <><p className="progress-box">{dataState.request.progressMessage}</p><p className="muted">Results stay hidden until categorization finishes.</p></> : null}
-        {dataState.resultsError && dataState.request?.resultsReady ? <p className="error-text">{dataState.resultsError}</p> : null}
+      <Stack spacing={2}>
+        {dataState.requestLoading ? <Typography color="text.secondary">Loading request...</Typography> : null}
+        {dataState.request && !dataState.request.resultsReady ? <Alert severity="info">{dataState.request.progressMessage}</Alert> : null}
+        {dataState.resultsError && dataState.request?.resultsReady ? <Alert severity="error">{dataState.resultsError}</Alert> : null}
         {dataState.results ? <ResultsSection dataState={dataState} geolocation={geolocation} categoryActions={categoryActions} listTopRef={listTopRef} setLocationPreview={setLocationPreview} reportState={reportState} /> : null}
-      </section>
+      </Stack>
       <LocationModal key={locationPreview ? `${locationPreview.title}-${locationPreview.location}` : "no-location-preview"} preview={locationPreview} onClose={() => setLocationPreview(null)} />
       <VehicleReportModal state={reportState.vehicleReportState} redFlagState={redFlagState} settings={dataState.settingsData?.item} onClose={() => closeModal(reportState, redFlagRequestRef, setRedFlagState)} onRegenerate={reportState.regenerateVehicleReport} onLookup={reportState.submitVehicleReportLookup} onCancelLookup={reportState.cancelVehicleReportLookup} onStartRedFlags={startRedFlagAnalysis} onCancelRedFlags={cancelRedFlagAnalysis} />
     </Shell>
@@ -52,62 +59,28 @@ function ResultsSection({ dataState, geolocation, categoryActions, listTopRef, s
   const currentItems = dataState.results?.items || [];
   const safePage = dataState.results?.pagination?.page || 1;
   const totalPages = dataState.results?.pagination?.totalPages || 1;
-  const pageNumbers = buildPageItems(safePage, totalPages);
+  buildPageItems(safePage, totalPages);
   return (
-    <>
-      <ResultsHeader dataState={dataState} geolocation={geolocation} />
-      <ResultsTabs categoryEntries={categoryEntries} activeCategory={dataState.activeCategory} setActiveCategory={dataState.setActiveCategory} setCurrentPage={dataState.setCurrentPage} categoryMap={dataState.results?.categories || {}} categoryActions={categoryActions} />
-      <div ref={listTopRef} className="results-list-top" />
-      <div className="listing-grid">{currentItems.length === 0 ? <p className="muted">No listings in this category.</p> : currentItems.map((item) => <ListingCard key={item.id} item={item} assignableCategories={dataState.results?.assignableCategories || []} categoryBusy={Boolean(dataState.categoryBusyByListing[item.id])} onAssignCategories={categoryActions.assignSavedCategories} onCreateCategory={dataState.createCategory} onOpenLocation={setLocationPreview} onOpenReport={reportState.openVehicleReport} distanceLabel={formatDistanceChip(item.location, geolocation.geolocationState, geolocation.locationCache[item.location])} />)}</div>
-      {currentItems.length > 0 ? <PaginationFooter results={dataState.results} safePage={safePage} pageSize={dataState.pageSize} totalPages={totalPages} pageNumbers={pageNumbers} setCurrentPage={dataState.setCurrentPage} /> : null}
-    </>
+    <Stack spacing={2}>
+      <Card variant="outlined">
+        <CardContent sx={{ p: { xs: 2, md: 2.5 } }}>
+          <ResultsHeaderCard dataState={dataState} geolocation={geolocation} />
+        </CardContent>
+      </Card>
+      <ResultsCategoryRail categoryEntries={categoryEntries} activeCategory={dataState.activeCategory} setActiveCategory={dataState.setActiveCategory} setCurrentPage={dataState.setCurrentPage} categoryMap={dataState.results?.categories || {}} categoryActions={categoryActions} />
+      <div ref={listTopRef} />
+      <Stack spacing={1.5}>{currentItems.length === 0 ? <Typography color="text.secondary">No listings in this category.</Typography> : currentItems.map((item) => <ListingCard key={item.id} item={item} assignableCategories={dataState.results?.assignableCategories || []} categoryBusy={Boolean(dataState.categoryBusyByListing[item.id])} onAssignCategories={categoryActions.assignSavedCategories} onCreateCategory={dataState.createCategory} onOpenLocation={setLocationPreview} onOpenReport={reportState.openVehicleReport} distanceLabel={formatDistanceChip(item.location, geolocation.geolocationState, geolocation.locationCache[item.location])} />)}</Stack>
+      {currentItems.length > 0 ? <PaginationFooter results={dataState.results} safePage={safePage} pageSize={dataState.pageSize} totalPages={totalPages} setCurrentPage={dataState.setCurrentPage} /> : null}
+    </Stack>
   );
 }
 
-function ResultsHeader({ dataState, geolocation }) {
-  const activeCategoryMeta = dataState.results.categories?.[dataState.activeCategory];
+function PaginationFooter({ results, safePage, pageSize, totalPages, setCurrentPage }) {
   return (
-    <div className="results-head">
-      <div className="results-summary">
-        <p className="section-kicker">Review queue</p>
-        <h2>{dataState.results.totalCount} listings</h2>
-        <div className="results-summary-meta">
-          <span>{activeCategoryMeta?.label || "Category"}: {dataState.results.pagination.totalItems}</span>
-          <span>Generated {new Date(dataState.results.generatedAt).toLocaleString()}</span>
-        </div>
-      </div>
-      <div className="results-controls">
-        <button type="button" className="button-secondary" onClick={geolocation.requestCurrentPosition} disabled={!dataState.results || geolocation.geolocationState.status === "requesting" || geolocation.geolocationState.status === "unavailable"}>{getGeolocationButtonLabel(geolocation.geolocationState)}</button>
-        <span className="muted results-location-status">{formatGeolocationStatus(geolocation.geolocationState)}</span>
-        <label className="page-size-control"><span className="chip-label">Per page</span><select value={dataState.pageSize} onChange={(event) => { dataState.setCurrentPage(1); dataState.setPageSize(Number(event.target.value)); }}>{pageSizeOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
-      </div>
-    </div>
-  );
-}
-
-function ResultsTabs({ categoryEntries, activeCategory, setActiveCategory, setCurrentPage, categoryMap, categoryActions }) {
-  return (
-    <div className="tab-row">
-      {categoryEntries.map(([categoryKey, category]) => <button key={categoryKey} className={categoryKey === activeCategory ? "tab active" : "tab"} onClick={() => { setCurrentPage(1); setActiveCategory(categoryKey); }}>{category.label}<span>{category.count || 0}</span></button>)}
-      <div className="tab-row-actions">
-        <IconButton title="Add category" tone="secondary" onClick={() => void categoryActions.createCategoryTab()}><IconPlus /></IconButton>
-        {categoryMap[activeCategory]?.editable ? <IconButton title="Rename category" tone="secondary" onClick={categoryActions.renameActiveCategory}><IconEdit /></IconButton> : null}
-        {categoryMap[activeCategory]?.deletable ? <IconButton title="Delete category" tone="danger" onClick={categoryActions.deleteActiveCategory}><IconTrash /></IconButton> : null}
-      </div>
-    </div>
-  );
-}
-
-function PaginationFooter({ results, safePage, pageSize, totalPages, pageNumbers, setCurrentPage }) {
-  return (
-    <div className="results-footer">
-      <div className="pagination">
-        <button type="button" className="pagination-button pagination-button-icon" disabled={safePage === 1} onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} aria-label="Previous page" title="Previous page"><IconChevronLeft /></button>
-        {pageNumbers.map((page, index) => page === "ellipsis" ? <span key={`ellipsis-${index}`} className="pagination-ellipsis">…</span> : <button key={page} type="button" className={page === safePage ? "pagination-button active" : "pagination-button"} onClick={() => setCurrentPage(page)}>{page}</button>)}
-        <button type="button" className="pagination-button pagination-button-icon" disabled={safePage === totalPages} onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} aria-label="Next page" title="Next page"><IconChevronRight /></button>
-      </div>
-      <p className="muted">{`Showing ${Math.min(results.pagination.totalItems, (safePage - 1) * pageSize + 1)}-${Math.min(results.pagination.totalItems, safePage * pageSize)} of ${results.pagination.totalItems}`}</p>
-    </div>
+    <Stack direction={{ xs: "column", sm: "row" }} spacing={1} justifyContent="space-between" alignItems={{ sm: "center" }} sx={{ pt: 0.5 }}>
+      <Pagination count={totalPages} page={safePage} onChange={(_, page) => setCurrentPage(page)} shape="rounded" />
+      <Typography variant="body2" color="text.secondary">{`Showing ${Math.min(results.pagination.totalItems, (safePage - 1) * pageSize + 1)}-${Math.min(results.pagination.totalItems, safePage * pageSize)} of ${results.pagination.totalItems}`}</Typography>
+    </Stack>
   );
 }
 

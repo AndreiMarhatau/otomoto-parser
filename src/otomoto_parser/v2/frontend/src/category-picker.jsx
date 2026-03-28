@@ -1,12 +1,20 @@
 import React from "react";
+import {
+  Button,
+  Checkbox,
+  ListItemIcon,
+  ListItemText,
+  Menu,
+  MenuItem,
+} from "@mui/material";
 
 import { IconPlus, IconStar, IconTag } from "./icons";
 
 export function CategoryPicker({ item, categories, busy, onCommit, onCreateCategory, onOpenChange }) {
-  const [open, setOpen] = React.useState(false);
+  const [anchorEl, setAnchorEl] = React.useState(null);
   const [draftKeys, setDraftKeys] = React.useState(item.savedCategoryKeys || []);
   const [saving, setSaving] = React.useState(false);
-  const containerRef = React.useRef(null);
+  const open = Boolean(anchorEl);
   const selectedKeys = new Set(draftKeys);
   const selectedCount = categories.filter((category) => selectedKeys.has(category.key)).length;
 
@@ -24,7 +32,7 @@ export function CategoryPicker({ item, categories, busy, onCommit, onCreateCateg
   }
 
   async function closePicker() {
-    setOpen(false);
+    setAnchorEl(null);
     const nextKeys = orderedKeys(draftKeys);
     const currentKeys = orderedKeys(item.savedCategoryKeys || []);
     if (JSON.stringify(nextKeys) === JSON.stringify(currentKeys)) return;
@@ -35,15 +43,6 @@ export function CategoryPicker({ item, categories, busy, onCommit, onCreateCateg
       setSaving(false);
     }
   }
-
-  React.useEffect(() => {
-    if (!open) return undefined;
-    function handlePointerDown(event) {
-      if (!containerRef.current?.contains(event.target)) void closePicker();
-    }
-    document.addEventListener("mousedown", handlePointerDown);
-    return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, [draftKeys, item, open]);
 
   function toggleCategory(categoryKey) {
     const next = new Set(draftKeys);
@@ -57,25 +56,38 @@ export function CategoryPicker({ item, categories, busy, onCommit, onCreateCateg
   }
 
   return (
-    <div className={open ? "category-picker open" : "category-picker"} ref={containerRef} onClick={(event) => event.stopPropagation()}>
-      <button type="button" className="listing-category-button chip-interactive" onClick={() => (open ? void closePicker() : setOpen(true))} disabled={busy || saving} title="Manage saved categories">
-        <IconTag /><span>Save</span>{selectedCount > 0 ? <span className="listing-category-count">{selectedCount}</span> : null}
-      </button>
-      {open ? (
-        <div className="category-picker-menu">
-          <div className="category-picker-list">
-            {categories.map((category) => (
-              <label key={category.key} className="category-picker-option">
-                <input type="checkbox" checked={selectedKeys.has(category.key)} disabled={busy || saving} onChange={() => toggleCategory(category.key)} />
-                <span className="category-picker-option-label">{category.key === "Favorites" ? <IconStar /> : <IconTag />}<span>{category.label}</span></span>
-              </label>
-            ))}
-          </div>
-          <button type="button" className="category-picker-add" disabled={busy || saving} onClick={() => void handleCreateCategory()}>
-            <IconPlus /><span>Add new</span>
-          </button>
-        </div>
-      ) : null}
-    </div>
+    <>
+      <Button
+        variant="outlined"
+        startIcon={<IconTag />}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (open) void closePicker();
+          else setAnchorEl(event.currentTarget);
+        }}
+        disabled={busy || saving}
+      >
+        {selectedCount > 0 ? `Saved (${selectedCount})` : "Save"}
+      </Button>
+      <Menu
+        anchorEl={anchorEl}
+        open={open}
+        onClose={() => void closePicker()}
+        onClick={(event) => event.stopPropagation()}
+        slotProps={{ paper: { sx: { minWidth: 240, borderRadius: 3 } } }}
+      >
+        {categories.map((category) => (
+          <MenuItem key={category.key} dense onClick={() => toggleCategory(category.key)} disabled={busy || saving}>
+            <Checkbox edge="start" checked={selectedKeys.has(category.key)} tabIndex={-1} disableRipple />
+            <ListItemIcon sx={{ minWidth: 28 }}>{category.key === "Favorites" ? <IconStar fontSize="small" /> : <IconTag fontSize="small" />}</ListItemIcon>
+            <ListItemText>{category.label}</ListItemText>
+          </MenuItem>
+        ))}
+        <MenuItem dense onClick={() => void handleCreateCategory()} disabled={busy || saving}>
+          <ListItemIcon sx={{ minWidth: 28 }}><IconPlus fontSize="small" /></ListItemIcon>
+          <ListItemText>Add new</ListItemText>
+        </MenuItem>
+      </Menu>
+    </>
   );
 }

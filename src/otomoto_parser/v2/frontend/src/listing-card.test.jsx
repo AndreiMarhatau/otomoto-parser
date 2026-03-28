@@ -43,11 +43,11 @@ describe("ListingCard", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Warsaw" }));
-    fireEvent.click(screen.getByRole("button", { name: "Vehicle report" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Vehicle report$/ }));
 
     expect(onOpenLocation).toHaveBeenCalledWith({ title: "BMW X1", location: "Warsaw" });
     expect(onOpenReport).toHaveBeenCalled();
-    expect(screen.getByText("Verified data")).toBeTruthy();
+    expect(screen.getByText(/Status: Verified data/)).toBeTruthy();
     expect(screen.getByText("5 km away")).toBeTruthy();
   });
 
@@ -77,7 +77,7 @@ describe("ListingCard", () => {
 
     expect(screen.getByText("No short description.")).toBeTruthy();
     expect(screen.getAllByText("No location")).toHaveLength(2);
-    expect(screen.getByText("No price evaluation")).toBeTruthy();
-    expect(screen.getByText("No engine capacity")).toBeTruthy();
+    expect(screen.getByText(/Price eval: No price evaluation/)).toBeTruthy();
+    expect(screen.getByText(/Engine: No engine capacity/)).toBeTruthy();
   });
 });

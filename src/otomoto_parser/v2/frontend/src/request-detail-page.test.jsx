@@ -71,12 +71,12 @@ describe("RequestDetailPage polling", () => {
     );
 
     expect(await screen.findByText("Request req-1")).toBeTruthy();
-    expect(await screen.findByText("Request one ready")).toBeTruthy();
+    expect((await screen.findAllByText("Request one ready")).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: "Open request 2" }));
 
     expect(await screen.findByText("Request req-2")).toBeTruthy();
-    expect(await screen.findByText("Request two ready")).toBeTruthy();
+    expect((await screen.findAllByText("Request two ready")).length).toBeGreaterThan(0);
     expect(fetchMock).toHaveBeenCalledWith("/api/requests/req-2", expect.any(Object));
   });
 
@@ -226,14 +226,14 @@ describe("RequestDetailPage polling", () => {
         </Routes>
       </MemoryRouter>,
     );
-    expect(await screen.findByText("Ready to delete")).toBeTruthy();
+    expect((await screen.findAllByText("Ready to delete")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Delete request" }));
     await screen.findByText("Request req-1");
     expect(window.confirm).toHaveBeenCalledWith("Remove this request and its stored files?");
     expect(window.alert).toHaveBeenCalledWith("delete exploded");
   });
 
-  it("uses explicit compact variant classes for detail layout sections", async () => {
+  it("renders the compact detail actions and metrics", async () => {
     global.fetch = vi.fn(async (path, options = {}) => {
       if (path === "/api/requests/req-1" && (!options.method || options.method === "GET")) {
         return jsonResponse({
@@ -262,8 +262,9 @@ describe("RequestDetailPage polling", () => {
     );
 
     expect(await screen.findByText("Request req-1")).toBeTruthy();
-    expect(screen.getByText("Source").closest(".detail-head")?.classList.contains("detail-head-compact")).toBe(true);
-    expect(screen.getByRole("link", { name: "https://example.invalid/req-1" }).closest(".detail-source-row")?.classList.contains("detail-source-row-compact")).toBe(true);
-    expect(screen.getByRole("button", { name: "Resume and gather new" }).closest(".detail-actions")?.classList.contains("detail-actions-compact")).toBe(true);
+    expect(screen.getByRole("button", { name: "Resume and gather new" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Redo from scratch" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open results" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Download Excel" })).toBeTruthy();
   });
 });

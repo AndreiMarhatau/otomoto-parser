@@ -1,5 +1,20 @@
 import React from "react";
 import { Link, NavLink } from "react-router-dom";
+import {
+  AppBar,
+  Box,
+  Breadcrumbs as MuiBreadcrumbs,
+  Button,
+  Chip,
+  Container,
+  IconButton as MuiIconButton,
+  Link as MuiLink,
+  Paper,
+  Stack,
+  Toolbar,
+  Typography,
+  alpha,
+} from "@mui/material";
 
 export function scrollWindowToPosition(top) {
   window.scrollTo(0, top);
@@ -23,50 +38,126 @@ export function buildPageItems(currentPage, totalPages) {
 }
 
 export function IconButton({ title, onClick, href, disabled = false, tone = "default", children }) {
-  const className = `icon-button icon-button-${tone}${disabled ? " icon-button-disabled" : ""}`;
+  const color = tone === "danger" ? "error" : tone === "secondary" ? "primary" : "default";
   if (href) {
-    return <a href={href} target="_blank" rel="noreferrer" className={className} title={title} aria-label={title}>{children}</a>;
+    return (
+      <MuiIconButton
+        component="a"
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        color={color}
+        title={title}
+        aria-label={title}
+      >
+        {children}
+      </MuiIconButton>
+    );
   }
-  return <button type="button" className={className} title={title} aria-label={title} onClick={onClick} disabled={disabled}>{children}</button>;
+  return (
+    <MuiIconButton type="button" color={color} title={title} aria-label={title} onClick={onClick} disabled={disabled}>
+      {children}
+    </MuiIconButton>
+  );
 }
 
-export function Shell({ title, subtitle, actions = null, children }) {
+export function Shell({ title, subtitle, actions = null, children, maxWidth = "xl" }) {
   return (
-    <div className="shell">
-      <header className="topbar">
-        <Link to="/" className="brand-mark">
-          <span className="brand-mark-label">OP</span>
-          <span className="brand-copy">
-            <strong>Otomoto Parser</strong>
-            <span>Review workspace</span>
-          </span>
-        </Link>
-        <nav className="topbar-nav" aria-label="Primary">
-          <NavLink to="/" end className={({ isActive }) => isActive ? "topbar-link active" : "topbar-link"}>All requests</NavLink>
-          <NavLink to="/settings" className={({ isActive }) => isActive ? "topbar-link active" : "topbar-link"}>Settings</NavLink>
-        </nav>
-      </header>
-      <div className="page-header">
-        <div className="page-header-copy">
-          <p className="eyebrow">Otomoto Parser</p>
-          <h1>{title}</h1>
-          {subtitle ? <p className="page-subtitle">{subtitle}</p> : null}
-        </div>
-        {actions ? <div className="page-header-actions">{actions}</div> : null}
-      </div>
-      {children}
-    </div>
+    <Box sx={{ pb: 8 }}>
+      <AppBar
+        position="sticky"
+        color="transparent"
+        elevation={0}
+        sx={{
+          borderBottom: 1,
+          borderColor: "divider",
+          backdropFilter: "blur(16px)",
+          bgcolor: (theme) => alpha(theme.palette.background.default, 0.82),
+        }}
+      >
+        <Container maxWidth="xl">
+          <Toolbar disableGutters sx={{ minHeight: { xs: 74, md: 82 }, justifyContent: "space-between", gap: 2, py: 1 }}>
+            <Stack component={Link} to="/" direction="row" spacing={1.5} alignItems="center" sx={{ textDecoration: "none", minWidth: 0 }}>
+              <Paper
+                elevation={0}
+                sx={{ width: 42, height: 42, borderRadius: 3, display: "grid", placeItems: "center", bgcolor: "primary.main", color: "primary.contrastText", flexShrink: 0 }}
+              >
+                <Typography variant="subtitle2" fontWeight={800}>OP</Typography>
+              </Paper>
+              <Stack spacing={0.25} sx={{ minWidth: 0 }}>
+                <Typography variant="subtitle1" fontWeight={700}>Otomoto Parser</Typography>
+                <Typography variant="body2" color="text.secondary">Review workspace</Typography>
+              </Stack>
+            </Stack>
+            <Stack component="nav" direction="row" spacing={1} aria-label="Primary" flexWrap="wrap" useFlexGap justifyContent="flex-end">
+              <NavButton to="/" label="All requests" end />
+              <NavButton to="/settings" label="Settings" />
+            </Stack>
+          </Toolbar>
+        </Container>
+      </AppBar>
+      <Container maxWidth={maxWidth} sx={{ pt: { xs: 3, md: 5 } }}>
+        <Stack spacing={3}>
+          <Stack direction={{ xs: "column", md: "row" }} spacing={2.5} justifyContent="space-between" alignItems={{ xs: "flex-start", md: "flex-end" }}>
+            <Box sx={{ maxWidth: 820 }}>
+              <Typography variant="overline" color="text.secondary">Otomoto Parser</Typography>
+              <Typography variant="h3" component="h1" sx={{ mt: 0.25 }}>{title}</Typography>
+              {subtitle ? <Typography variant="body1" color="text.secondary" sx={{ mt: 1.25, maxWidth: 760 }}>{subtitle}</Typography> : null}
+            </Box>
+            {actions ? <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap justifyContent={{ xs: "flex-start", md: "flex-end" }}>{actions}</Stack> : null}
+          </Stack>
+          {children}
+        </Stack>
+      </Container>
+    </Box>
   );
 }
 
 export function Breadcrumbs({ items }) {
-  return <nav className="breadcrumbs" aria-label="Breadcrumbs">{items.map((item, index) => <React.Fragment key={item.label}>{index > 0 ? <span>/</span> : null}{item.to ? <Link to={item.to}>{item.label}</Link> : <span>{item.label}</span>}</React.Fragment>)}</nav>;
+  return (
+    <MuiBreadcrumbs aria-label="Breadcrumbs">
+      {items.map((item) =>
+        item.to ? (
+          <MuiLink component={Link} underline="hover" color="inherit" to={item.to} key={item.label}>
+            {item.label}
+          </MuiLink>
+        ) : (
+          <Typography color="text.secondary" key={item.label}>{item.label}</Typography>
+        ),
+      )}
+    </MuiBreadcrumbs>
+  );
 }
 
 export function StatusPill({ status }) {
-  return <span className={`status-pill status-${status}`}>{status}</span>;
+  const color = status === "ready" ? "success" : status === "running" ? "warning" : status === "failed" ? "error" : "default";
+  return <Chip size="small" color={color} label={status} sx={{ textTransform: "capitalize" }} />;
 }
 
 export function Metric({ label, value }) {
-  return <div className="metric"><span>{label}</span><strong>{value ?? "—"}</strong></div>;
+  return (
+    <Paper variant="outlined" sx={{ px: 2, py: 1.5, minWidth: 140 }}>
+      <Typography variant="body2" color="text.secondary">{label}</Typography>
+      <Typography variant="subtitle1">{value ?? "—"}</Typography>
+    </Paper>
+  );
+}
+
+function NavButton({ to, label, end = false }) {
+  return (
+    <Button
+      component={NavLink}
+      to={to}
+      end={end}
+      color="inherit"
+      variant="text"
+      sx={{
+        color: "text.secondary",
+        px: 1.5,
+        "&.active": { bgcolor: "action.selected", color: "text.primary" },
+      }}
+    >
+      {label}
+    </Button>
+  );
 }
