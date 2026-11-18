@@ -37,6 +37,7 @@ export function SettingsPage() {
   return (
     <Shell title="Settings" subtitle="Model configuration stays compact until you need it.">
       <Breadcrumbs items={[{ label: "Requests", to: "/" }, { label: "Settings" }]} />
+      <Button component="a" href="/access">Access code and sign-in settings</Button>
       <Card variant="outlined">
         <CardContent>
           <Stack spacing={2.5}>
