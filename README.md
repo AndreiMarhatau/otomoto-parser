@@ -84,3 +84,22 @@ Listings are categorized in this order:
 - Retries GraphQL requests with exponential backoff (default 4 attempts, base 1s; configurable).
 - Adds a random delay between pages (default 10–20s; configurable).
 - Recommended: sort results by “Najnowsze” so you can keep iterating and append newer listings as they appear.
+
+### Optional access code
+
+Open **Settings → Access code and sign-in settings** (or `/access`). With no code,
+existing behavior is unchanged. Set an 8–128 character code **on your trusted local
+network before publishing the app**. Anyone with access while protection is off
+can set it. The browser remembers a 30-day HttpOnly, host-only session, not the code.
+All API routes and API documentation require authentication while enabled.
+Changing/disabling the code requires the current code and invalidates old sessions.
+Codes are salted/scrypt-hashed; configuration persists in `access.json` in the
+application data directory (the existing `/data` Docker volume). No `.env` needed.
+Login/configuration attempts are limited globally to 10 per minute per process.
+Run a single application worker; this lightweight file-backed gate is not a
+multi-worker identity service. Use HTTPS at your reverse proxy, forward the original
+Host, and configure Uvicorn to trust forwarded scheme headers only from that proxy.
+Do not publish port 8000 directly. Never publish an instance with protection off.
+The previous wildcard CORS policy is removed; serve UI/API from the same origin.
+To recover a forgotten code, stop the app and remove only `access.json` locally,
+then restart and configure a replacement before exposing it again.

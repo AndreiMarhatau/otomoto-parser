@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from .access import install_access
 
 from ._app_cli import build_arg_parser, frontend_dist_dir, parser_options_from_args
 from ._app_frontend import mount_frontend
@@ -27,7 +27,7 @@ def create_app(*, data_dir: Path | None = None, service: ParserAppService | None
             app.state.service.shutdown()
 
     app = FastAPI(title="Otomoto Parser App", lifespan=lifespan)
-    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+    install_access(app, app_data_dir)
     register_routes(app)
     mount_frontend(app, frontend_dist_dir(__file__))
     return app
