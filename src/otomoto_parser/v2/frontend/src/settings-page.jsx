@@ -9,6 +9,7 @@ import {
   Typography,
 } from "@mui/material";
 
+import { AccessPanel } from "./access-panel";
 import { api } from "./api";
 import { Breadcrumbs, Metric, Shell } from "./layout";
 import { usePolling } from "./use-polling";
@@ -37,7 +38,7 @@ export function SettingsPage() {
   return (
     <Shell title="Settings" subtitle="Model configuration stays compact until you need it.">
       <Breadcrumbs items={[{ label: "Requests", to: "/" }, { label: "Settings" }]} />
-      <Button component="a" href="/access">Access code and sign-in settings</Button>
+      <AccessPanel />
       <Card variant="outlined">
         <CardContent>
           <Stack spacing={2.5}>

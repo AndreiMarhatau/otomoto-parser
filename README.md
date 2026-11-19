@@ -87,11 +87,16 @@ Listings are categorized in this order:
 
 ### Optional access code
 
-Open **Settings → Access code and sign-in settings** (or `/access`). With no code,
+Open **Settings → Access code** (or `/access` to sign in). With no code,
 existing behavior is unchanged. Set an 8–128 character code **on your trusted local
 network before publishing the app**. Anyone with access while protection is off
-can set it. The browser remembers a 30-day HttpOnly, host-only session, not the code.
+can set it. The browser remembers a 365-day HttpOnly, host-only session, not the code.
+Active sessions renew in their last 30 days; there is no fixed lifetime while used.
+Logout persistently revokes that session, including earlier renewed tokens.
+Existing valid cookies upgrade without requiring the code; clearing browser cookies
+or 365 days without renewal requires signing in again.
 All API routes and API documentation require authentication while enabled.
+Initial setup asks for the new code twice; changes ask for current, new and repeat.
 Changing/disabling the code requires the current code and invalidates old sessions.
 Codes are salted/scrypt-hashed; configuration persists in `access.json` in the
 application data directory (the existing `/data` Docker volume). No `.env` needed.
