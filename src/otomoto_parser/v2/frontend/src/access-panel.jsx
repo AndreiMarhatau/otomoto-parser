@@ -30,7 +30,7 @@ export function AccessPanel({ loginPage = false }) {
     } catch (e) { setError(e.message); }
     finally { setBusy(false); }
   }
-  const field = (label, value, setter, autoComplete, minimum) => <TextField label={label} type="password" value={value} onChange={e => setter(e.target.value)} autoComplete={autoComplete} required slotProps={{ htmlInput: { minLength: minimum, maxLength: 128 } }} />;
+  const field = (label, value, setter, autoComplete) => <TextField label={label} type="password" value={value} onChange={e => setter(e.target.value)} autoComplete={autoComplete} required slotProps={{ htmlInput: { minLength: autoComplete === "new-password" ? 8 : undefined, maxLength: 128 } }} />;
   const content = <Card variant="outlined"><CardContent><Stack spacing={2}>
     <Typography variant="h5">{locked ? "Sign in" : "Access code"}</Typography>
     {!status ? <Button onClick={refresh}>Retry loading access settings</Button> : <>
@@ -38,8 +38,8 @@ export function AccessPanel({ loginPage = false }) {
       <Stack component="form" spacing={2} onSubmit={e => { e.preventDefault(); void submit(locked ? "login" : "save"); }}>
         {(locked || status.enabled) && field(locked ? "Access code" : "Current code", code, setCode, "current-password")}
         {!locked && <>
-          {field("New code (8–128 characters)", newCode, setNewCode, "new-password", 8)}
-          {field("Repeat new code", repeat, setRepeat, "new-password", 8)}
+          {field("New code (8–128 characters)", newCode, setNewCode, "new-password")}
+          {field("Repeat new code", repeat, setRepeat, "new-password")}
         </>}
         <Button type="submit" disabled={busy} variant="contained">{busy ? "Please wait..." : locked ? "Sign in" : "Save code"}</Button>
         {!locked && status.enabled && <>

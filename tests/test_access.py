@@ -102,3 +102,20 @@ def test_legacy_session_renews_without_code(tmp_path, monkeypatch):
     c.post('/api/access', json={'action': 'logout'})
     c.cookies.set(access.COOKIE, legacy, domain="testserver.local")
     assert c.get('/api/private').status_code == 401
+
+
+def test_checked_in_frontend_serves_native_access_route(tmp_path):
+    import re
+    from otomoto_parser.v2.app import create_app
+    app = create_app(data_dir=tmp_path)
+    with TestClient(app) as c:
+        c.post('/api/access', json={'action': 'save', 'newCode': 'test-code-123'})
+        c.cookies.clear()
+        page = c.get('/access')
+        assert page.status_code == 200
+        asset = re.search(r'src="([^"]+\.js)"', page.text).group(1)
+        bundle = c.get(asset)
+        assert bundle.status_code == 200
+        assert 'Repeat new code' in bundle.text
+        assert 'Current code' in bundle.text
+        assert c.get('/api/settings').status_code == 401
