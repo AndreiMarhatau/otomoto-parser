@@ -1,5 +1,6 @@
 import React from "react";
 import { Alert, Button, Card, CardContent, Stack, TextField, Typography } from "@mui/material";
+import { accessRequest } from "./access-session";
 import { api } from "./api";
 import { Shell } from "./layout";
 
@@ -22,7 +23,7 @@ export function AccessPanel({ loginPage = false }) {
     if (action === "save" && newCode !== repeat) { setError("New codes do not match."); return; }
     setBusy(true);
     try {
-      await api("/api/access", { method: "POST", body: JSON.stringify({ action: action === "disable" ? "save" : action, code, newCode: action === "disable" ? "" : newCode }) });
+      await accessRequest({ action: action === "disable" ? "save" : action, code, newCode: action === "disable" ? "" : newCode });
       setCode(""); setNewCode(""); setRepeat("");
       if (action === "login") window.location.assign("/");
       else if (action === "logout") window.location.assign("/access");

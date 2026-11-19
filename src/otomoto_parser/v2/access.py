@@ -72,7 +72,7 @@ class Access:
         identity = self.identity(token) if token else secrets.token_hex(32)
         payload = f'{expiry}.{identity}'
         signature = hmac.new(bytes.fromhex(self.state['secret']), payload.encode(), hashlib.sha256).hexdigest()
-        response.set_cookie(COOKIE, f'{payload}.{signature}', max_age=TTL, httponly=True, samesite='strict', secure=request.url.scheme == 'https')
+        response.set_cookie(COOKIE, f'{payload}.{signature}', max_age=TTL, httponly=True, samesite='strict', secure=request.url.scheme == 'https' or request.headers.get('origin') == f'https://{request.headers.get("host")}')
 
 
 def install_access(app, directory):
@@ -83,20 +83,15 @@ def install_access(app, directory):
     async def gate(request: Request, call_next):
         if request.method not in ('GET', 'HEAD', 'OPTIONS'):
             origin = request.headers.get('origin')
-            if origin and origin != f'{request.url.scheme}://{request.headers.get("host")}':
+            allowed = {f'{request.url.scheme}://{request.headers.get("host")}', f'https://{request.headers.get("host")}'}
+            if origin and origin not in allowed:
                 return JSONResponse({'detail': 'Cross-origin request rejected'}, status_code=403)
         public = request.url.path in ('/access', '/api/access') or request.url.path.startswith('/assets/')
         if access.state and not public and not access.valid(request.cookies.get(COOKIE)):
             if request.url.path.startswith('/api/') or request.url.path in ('/docs', '/redoc', '/openapi.json'):
                 return JSONResponse({'detail': 'Sign in at /access'}, status_code=401)
             return RedirectResponse('/access', status_code=303)
-        token = request.cookies.get(COOKIE)
-        response = await call_next(request)
-        # Do not overwrite cookies issued by login, rotation, or logout.
-        if ('set-cookie' not in response.headers and access.valid(token)
-                and int(token.split('.')[0]) < time.time() + 30 * 86400):
-            access.cookie(response, request, token)
-        return response
+        return await call_next(request)
 
     @app.get('/api/access')
     def status(request: Request):
@@ -112,6 +107,13 @@ async def update_access(request: Request):
         return payload
     action = payload.get('action')
     with access.lock:
+        if action == 'renew':
+            token = request.cookies.get(COOKIE)
+            authenticated = access.valid(token)
+            response = JSONResponse({'enabled': bool(access.state), 'authenticated': not access.state or authenticated})
+            if authenticated and int(token.split('.')[0]) < time.time() + 30 * 86400:
+                access.cookie(response, request, token)
+            return response
         now = time.monotonic()
         access.attempts = [t for t in access.attempts if now - t < 60]
         if len(access.attempts) >= 10:

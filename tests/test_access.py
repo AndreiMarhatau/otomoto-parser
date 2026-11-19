@@ -62,7 +62,8 @@ def test_rolling_session_restart_logout_and_idle_expiry(tmp_path, monkeypatch):
     c.cookies.set(access.COOKIE, token, domain="testserver.local")
     assert 'set-cookie' not in c.get('/api/private').headers
     now += 340 * 86400
-    response = c.get('/api/private')
+    assert 'set-cookie' not in c.get('/api/private').headers
+    response = c.post('/api/access', json={'action': 'renew'})
     assert response.status_code == 200
     renewed = c.cookies.get(access.COOKIE)
     assert renewed != token
@@ -96,7 +97,7 @@ def test_legacy_session_renews_without_code(tmp_path, monkeypatch):
     legacy = expiry + '.' + signature
     c.cookies.clear()
     c.cookies.set(access.COOKIE, legacy, domain="testserver.local")
-    assert c.get('/api/private').status_code == 200
+    assert c.post('/api/access', json={'action': 'renew'}).status_code == 200
     renewed = c.cookies.get(access.COOKIE)
     assert len(renewed.split('.')) == 3
     c.post('/api/access', json={'action': 'logout'})
@@ -119,3 +120,26 @@ def test_checked_in_frontend_serves_native_access_route(tmp_path):
         assert 'Repeat new code' in bundle.text
         assert 'Current code' in bundle.text
         assert c.get('/api/settings').status_code == 401
+
+
+def test_https_origin_behind_http_proxy_and_activity_secure_cookie(tmp_path, monkeypatch):
+    from otomoto_parser.v2 import access
+    now = 2000000000
+    monkeypatch.setattr(access.time, 'time', lambda: now)
+    c = client(tmp_path)
+    origin = {'Origin': 'https://testserver'}
+    assert c.post('/api/access', content='', headers={**origin, 'Content-Type': 'text/plain'}).status_code == 415
+    assert c.post('/api/access', json={'action': 'renew'}, headers={'Origin': 'https://sibling.testserver'}).status_code == 403
+    response = c.post('/api/access', json={'action': 'save', 'newCode': 'test-code-123'}, headers=origin)
+    assert 'Secure' in response.headers['set-cookie']
+    token = response.cookies.get(access.COOKIE)
+    c.cookies.clear()
+    # Test transport is HTTP: supply the simulated TLS proxy request cookie explicitly.
+    headers = {**origin, 'Cookie': f'{access.COOKIE}={token}'}
+    for _ in range(15):
+        assert c.post('/api/access', json={'action': 'renew'}, headers=headers).status_code == 200
+    now += 340 * 86400
+    response = c.post('/api/access', json={'action': 'renew'}, headers=headers)
+    assert 'Secure' in response.headers['set-cookie']
+    secure_client = TestClient(c.app, base_url='https://testserver')
+    assert secure_client.post('/api/access', json={'action': 'renew'}, headers={'Origin': 'http://testserver'}).status_code == 403

@@ -91,7 +91,8 @@ Open **Settings → Access code** (or `/access` to sign in). With no code,
 existing behavior is unchanged. Set an 8–128 character code **on your trusted local
 network before publishing the app**. Anyone with access while protection is off
 can set it. The browser remembers a 365-day HttpOnly, host-only session, not the code.
-Active sessions renew in their last 30 days; there is no fixed lifetime while used.
+Sessions renew in their last 30 days on initial load/focus or throttled keyboard/pointer
+activity, not passive API polling; there is no fixed lifetime while used.
 Logout persistently revokes that session, including earlier renewed tokens.
 Existing valid cookies upgrade without requiring the code; clearing browser cookies
 or 365 days without renewal requires signing in again.
@@ -103,7 +104,9 @@ application data directory (the existing `/data` Docker volume). No `.env` neede
 Login/configuration attempts are limited globally to 10 per minute per process.
 Run a single application worker; this lightweight file-backed gate is not a
 multi-worker identity service. Use HTTPS at your reverse proxy, forward the original
-Host, and configure Uvicorn to trust forwarded scheme headers only from that proxy.
+Host. Same-Host HTTPS Origin is accepted behind HTTP TLS termination; code and
+activity POST responses set Secure from that exact Origin without trusting arbitrary
+forwarded headers. HTTP Origin is never accepted against an HTTPS request.
 Do not publish port 8000 directly. Never publish an instance with protection off.
 The previous wildcard CORS policy is removed; serve UI/API from the same origin.
 To recover a forgotten code, stop the app and remove only `access.json` locally,
