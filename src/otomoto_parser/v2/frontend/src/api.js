@@ -3,7 +3,7 @@ export async function api(path, options = {}) {
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
     ...options,
   });
-  if (response.status === 401 && typeof window !== "undefined") {
+  if (response.status === 401 && path !== "/api/access" && typeof window !== "undefined") {
     window.location.assign("/access");
   }
   if (!response.ok) {
